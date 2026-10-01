@@ -1,0 +1,40 @@
+; 指针缩放配置文件 —— 图形界面保存时也会覆写这里，手改同样有效
+
+[pointer]
+; 不点击时（平时）的指针大小，像素。范围 1-256。
+; 也可以写 auto，表示沿用系统当前设置。
+idle_size = 48
+; 按下鼠标时缩小到的目标大小，像素。
+click_size = 25
+; 触发按键：left / right / middle / both（左右键都触发）
+trigger = left
+; 是否启用动画
+enabled = true
+
+[animation]
+; 按下（缩小）动画时长，毫秒。0 = 瞬间切换
+press_duration_ms = 80
+; 松开（恢复）动画时长，毫秒
+release_duration_ms = 83
+; 缩小用哪条曲线，可用 --curves 查看全部
+press_curve = ease_in_quad
+; 恢复用哪条曲线
+release_curve = ease_out_quad
+; back / elastic 这类过冲曲线的强度，默认 3.0
+curve_strength = 3.0
+; 动画帧率。每一帧 = 系统重绘一次光标，帧率越高系统开销越大、也越容易看出闪。
+; 60 已经足够顺滑（200ms 的动画也有 12 帧），想要更细腻可以往上调，卡就降到 30
+fps = 60
+; 什么时候广播 WM_SETTINGCHANGE：
+;   settle      只在动画落定时广播一次（默认，动画最干净）
+;   every_frame 每帧都广播。这是旧行为，帧率多高就每秒广播多少次；
+;               响应广播的程序会按注册表里的旧尺寸把光标重设回去，
+;               动画期间看起来就是一闪一闪。除非发现指针尺寸不生效，
+;               否则不要改。
+broadcast = settle
+
+[hotkeys]
+; 全局快捷键，格式 ctrl+alt+字母
+toggle = ctrl+alt+p
+reset = ctrl+alt+r
+quit = ctrl+alt+q

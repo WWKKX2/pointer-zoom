@@ -1,0 +1,167 @@
+# -*- coding: utf-8 -*-
+"""图形界面冒烟测试 —— 真的把窗口建起来、跑几轮事件循环、把每个控件都动一遍。
+
+跑的时候窗口会闪现一下，指针也会按配置动几下，结束后自动还原。
+
+    python test_gui.py
+"""
+
+import os
+import sys
+import tempfile
+import time
+import tkinter as tk
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "src"))
+
+import pointer_zoom as pz      # noqa: E402
+import pointer_gui as pg       # noqa: E402
+
+PASS, FAIL = [], []
+
+
+def check(name, cond, detail=""):
+    (PASS if cond else FAIL).append(name)
+    print(f"  [{'OK ' if cond else 'FAIL'}] {name}" + (f"   {detail}" if detail else ""))
+
+
+def pump(root, seconds=0.25):
+    end = time.perf_counter() + seconds
+    while time.perf_counter() < end:
+        root.update()
+        time.sleep(0.01)
+
+
+def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+    cfg = pz.load_config(os.path.join(ROOT, "pointer-zoom.ini"))
+    tmp_ini = os.path.join(tempfile.gettempdir(), "pointer-zoom-test.ini")
+
+    print("=" * 62)
+    print("图形界面冒烟测试")
+    print("=" * 62)
+
+    root = tk.Tk()
+    gui = None
+    try:
+        gui = pg.ZoomGui(root, cfg, tmp_ini)
+        pump(root, 0.6)
+
+        check("窗口与所有控件构建成功", True)
+        check("画布已绘制曲线", len(gui.canvas.find_all()) > 5,
+              f"{len(gui.canvas.find_all())} 个图元")
+
+        print("\n1) 每个控件都动一遍")
+        gui.var_idle.set(120)
+        gui._on_size_change()
+        pump(root, 0.15)
+        check("平时大小 -> 120px 已生效",
+              gui.cfg["idle_size"] == 120 and abs(gui.app.anim.current - 120) < 3,
+              f"current={gui.app.anim.current:.1f}")
+
+        gui.var_click.set(24)
+        gui._on_size_change()
+        check("按下大小 -> 24px", gui.cfg["click_size"] == 24)
+
+        gui.var_press_ms.set(90)
+        gui.var_release_ms.set(300)
+        gui.var_fps.set(30)
+        gui._on_anim_change()
+        check("时长 / 帧率已同步",
+              gui.cfg["press_ms"] == 90 and gui.cfg["release_ms"] == 300
+              and gui.cfg["fps"] == 30 and gui.app.anim.fps == 30)
+
+        gui.var_trigger.set("both")
+        gui._on_trigger_change()
+        check("触发键 -> 左右键", gui.cfg["trigger"] == "both")
+
+        gui.var_strength.set(2.4)
+        gui._on_curve_change()
+        check("回弹强度 -> 2.4", abs(gui.cfg["strength"] - 2.4) < 1e-6)
+
+        print("\n2) 17 条曲线全部画一遍")
+        bad = []
+        for name in pg.CURVES:
+            gui.var_press_curve.set(name)
+            gui.var_release_curve.set(name)
+            gui._on_curve_change()
+            root.update()
+            if len(gui.canvas.find_all()) < 5:
+                bad.append(name)
+        check("全部曲线预览绘制无异常", not bad, f"异常: {bad}" if bad else "17 条")
+
+        print("\n3) 预览动画跑一遍")
+        gui.var_press_curve.set("ease_out_cubic")
+        gui.var_release_curve.set("ease_out_back")
+        gui._on_curve_change()
+        gui.preview()
+        pump(root, 1.4)
+        check("预览后回到平时大小",
+              abs(gui.app.anim.current - gui.cfg["idle_size"]) < 3,
+              f"current={gui.app.anim.current:.1f}px")
+
+        print("\n4) 启用开关")
+        gui.var_enabled.set(False)
+        gui._on_toggle_enabled()
+        pump(root, 0.2)
+        check("停用后指针恢复原始大小",
+              abs(gui.app.anim.current - gui.app.original) < 3,
+              f"current={gui.app.anim.current:.1f}px  original={gui.app.original}")
+        gui.var_enabled.set(True)
+        gui._on_toggle_enabled()
+        pump(root, 0.2)
+        check("重新启用后回到平时大小",
+              abs(gui.app.anim.current - gui.cfg["idle_size"]) < 3)
+
+        print("\n5) 保存配置并回读")
+        gui.save_now()
+        check("配置文件已写出", os.path.exists(tmp_ini))
+        reloaded = pz.load_config(tmp_ini)
+        same = all(reloaded[k] == gui.cfg[k] for k in
+                   ("idle_size", "click_size", "press_ms", "release_ms",
+                    "fps", "trigger", "press_curve", "release_curve"))
+        check("保存后回读一致", same,
+              f"idle={reloaded['idle_size']} click={reloaded['click_size']} "
+              f"curve={reloaded['press_curve']}")
+        check("回弹强度回读一致",
+              abs(reloaded["strength"] - gui.cfg["strength"]) < 1e-6)
+
+        print("\n6) 钩子线程状态")
+        check("钩子线程已启动", gui.hook_thread is not None
+              and gui.hook_thread.is_alive())
+        check("钩子无错误", gui.hook_thread.error is None,
+              f"{gui.hook_thread.error}")
+        # 快捷键可能被其它程序占用，那是环境问题不是代码问题；
+        # 这里只断言注册链路本身没坏（解析 + RegisterHotKey + 降级都跑通了）。
+        registered = [k for k, v in gui.app.hotkeys.items() if v]
+        check(f"快捷键注册链路正常（{len(registered)}/3 成功）",
+              len(registered) >= 1, f"{gui.app.hotkeys}")
+
+    finally:
+        if gui:
+            gui.on_close()
+        else:
+            root.destroy()
+        time.sleep(0.3)
+        pz.apply_size(cfg["original_size"])
+        try:
+            os.remove(tmp_ini)
+        except OSError:
+            pass
+        print(f"\n[清理] 指针已还原为 {cfg['original_size']}px")
+
+    print("\n" + "=" * 62)
+    print(f"通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
+    for name in FAIL:
+        print(f"  FAILED: {name}")
+    print("=" * 62)
+    return 1 if FAIL else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

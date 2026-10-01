@@ -1,0 +1,43 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+sdist/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 打包产物 ----
+dist/
+*.zip
+
+# ---- 用户自己的配置（程序首次运行会自动生成）----
+pointer-zoom.ini
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+desktop.ini
+.DS_Store
+._*
+$RECYCLE.BIN/
+
+# ---- 工作区私有数据 ----
+.workbuddy-ai/

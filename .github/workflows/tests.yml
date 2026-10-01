@@ -1,0 +1,42 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.13"]
+
+    env:
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 先做一遍全量语法检查，能抓到没被测试覆盖到的文件里的低级错误
+      - name: Syntax check
+        run: python -m compileall -q src tests tools
+
+      # 纯逻辑：不装钩子、不改指针，任何环境都能跑
+      - name: Logic tests (48 checks)
+        run: python tests/test_logic.py
+
+      # 广播时机回归：apply_size 被换成记录器，不碰真实光标，CI 里也安全
+      - name: Broadcast regression (33 checks)
+        run: python tests/test_broadcast.py
+
+      # 默认配置必须能被解析，且 ini 模板里每个占位符都有值
+      - name: Default config sanity
+        run: |
+          python -c "import sys; sys.path.insert(0, 'src'); import pointer_zoom as pz; assert 'broadcast = settle' in pz.DEFAULT_INI; assert pz._norm_broadcast('every_frame') == pz.BROADCAST_EVERY; print('config OK')"
