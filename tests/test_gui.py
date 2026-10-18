@@ -34,6 +34,25 @@ def pump(root, seconds=0.25):
         time.sleep(0.01)
 
 
+def pump_until_gone(root, seconds=1.5):
+    """驱动事件循环直到窗口被销毁（托盘 quit 会 destroy root，
+    普通 pump 在 destroy 后再 update 会抛 TclError；
+    destroy 后连 winfo_exists() 都会抛，得一起兜住）。"""
+    end = time.perf_counter() + seconds
+    while time.perf_counter() < end:
+        try:
+            if not root.winfo_exists():
+                return True
+            root.update()
+        except tk.TclError:
+            return True
+        time.sleep(0.02)
+    try:
+        return not root.winfo_exists()
+    except tk.TclError:
+        return True
+
+
 def main():
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -41,6 +60,9 @@ def main():
         pass
 
     cfg = pz.load_config(os.path.join(ROOT, "pointer-zoom.ini"))
+    # 测试里绝不建真托盘图标（那会真的挂到通知栏上），
+    # 托盘行为在第 9 节用「假托盘句柄 + 动作队列」来测
+    cfg["close_to_tray"] = False
     tmp_ini = os.path.join(tempfile.gettempdir(), "pointer-zoom-test.ini")
 
     print("=" * 62)
@@ -233,6 +255,43 @@ def main():
         check("切回浅色无异常", not cb_errors, f"{cb_errors[:2]}")
 
         check("全程无回调异常", not cb_errors, f"{cb_errors[:3]}")
+
+        print("\n9) 后台运行（托盘）")
+        # 托盘线程/真图标不在测试范围（test_tray.py 也不碰），
+        # 这里只测 ZoomGui 的行为：开关 -> 配置与托盘请求、
+        # 点 × 隐藏、托盘队列 show/quit 的完整闭环。
+        called = []
+        gui._ensure_tray = lambda: called.append("add")
+        gui._drop_tray = lambda: called.append("drop")
+        gui.var_tray.set(True)
+        gui._on_toggle_tray()
+        check("打开后台运行 -> 配置生效且请求建托盘",
+              gui.cfg["close_to_tray"] is True and called == ["add"],
+              f"cfg={gui.cfg['close_to_tray']} called={called}")
+        gui.var_tray.set(False)
+        gui._on_toggle_tray()
+        check("关闭后台运行 -> 请求摘托盘",
+              gui.cfg["close_to_tray"] is False and called == ["add", "drop"],
+              f"called={called}")
+
+        # 重新打开，塞一个假托盘句柄（_drop_tray 已被替换，不会有真调用）
+        gui.var_tray.set(True)
+        gui._on_toggle_tray()
+        gui.tray = object()
+        gui.on_close()
+        pump(root, 0.3)
+        check("点 × 只藏窗口不退出",
+              not root.winfo_viewable() and bool(root.winfo_exists()),
+              f"viewable={root.winfo_viewable()}")
+        check("隐藏期间引擎还在跑",
+              gui.hook_thread is not None and gui.hook_thread.is_alive())
+        gui.tray_actions.put("show")
+        pump(root, 0.5)
+        check("托盘 show -> 窗口找回", bool(root.winfo_viewable()))
+        gui.tray_actions.put("quit")
+        check("托盘 quit -> 彻底退出", pump_until_gone(root))
+        check("退出后钩子线程已停",
+              not gui.hook_thread.is_alive())
 
     finally:
         if gui:

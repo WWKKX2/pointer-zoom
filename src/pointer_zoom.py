@@ -422,6 +422,12 @@ class Animator(threading.Thread):
 INI_TEMPLATE = """\
 ; 指针缩放配置文件 —— 图形界面保存时也会覆写这里，手改同样有效
 
+[general]
+; 后台运行：关闭窗口时不退出，缩到通知栏（托盘图标），
+; 左键点托盘图标找回窗口，右键菜单可以彻底退出。
+; false = 点 × 直接退出
+close_to_tray = {close_to_tray}
+
 [pointer]
 ; 不点击时（平时）的指针大小，像素。范围 1-256。
 ; 也可以写 auto，表示沿用系统当前设置。
@@ -464,6 +470,7 @@ quit = {hk_quit}
 
 # 出厂默认值 —— 就是作者自己长期用着最顺手的那一套
 INI_DEFAULTS = {
+    "close_to_tray": "true",
     "idle_size": 48, "click_size": 25, "trigger": "left", "enabled": "true",
     "press_ms": 80, "release_ms": 83,
     "press_curve": "ease_in_quad", "release_curve": "ease_out_quad",
@@ -490,6 +497,7 @@ def _norm_broadcast(text):
 def save_config(path, cfg):
     """把当前配置写回 ini。图形界面每次改动后调用。"""
     text = INI_TEMPLATE.format(
+        close_to_tray="true" if cfg.get("close_to_tray") else "false",
         idle_size=cfg["idle_size"],
         click_size=cfg["click_size"],
         trigger=cfg["trigger"],
@@ -539,6 +547,9 @@ def load_config(path):
         "pointer", "idle_size", D["idle_size"])
 
     return {
+        "close_to_tray": gstr("general", "close_to_tray",
+                              D["close_to_tray"]).lower() in (
+            "1", "true", "yes", "on"),
         "original_size": original,
         "idle_size": max(SIZE_MIN, min(SIZE_MAX, idle)),
         "click_size": max(SIZE_MIN, min(SIZE_MAX, gint(
@@ -594,6 +605,7 @@ class PointerZoom:
         self.pressed = False
         self.hotkeys = {}
         self.verbose = False
+        self.quit_callback = None   # GUI 版设置它：快捷键退出走界面的完整退出流程
         self._hook = None
         self._hook_proc = None       # 必须持有引用，否则回调会被 GC 掉
         self._restored = False
@@ -711,7 +723,11 @@ class PointerZoom:
         elif hk_id == HK_QUIT:
             print("[快捷键] 退出")
             self.restore()
-            user32.PostQuitMessage(0)
+            if self.quit_callback:
+                # GUI 版：交给主线程做完整退出（存配置、摘托盘、停钩子、关窗口）
+                self.quit_callback()
+            else:
+                user32.PostQuitMessage(0)
 
     # ---- 钩子服务（可跑在任意线程，GUI 版会把它放到独立线程）
 

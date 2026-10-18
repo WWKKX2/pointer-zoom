@@ -6,9 +6,11 @@ r"""指针缩放 —— 图形界面（v1.1 新版面）
    主线程    tkinter 界面（tkinter 必须独占主线程）
    钩子线程  SetWindowsHookEx + RegisterHotKey + 消息循环
    动画线程  尺寸缓动（Animator 自带）
+   托盘线程  通知栏图标的消息循环（开了「后台运行」才有）
 
 界面**不做任何跨线程回调**：tkinter 不是线程安全的，从钩子线程里调 after()
 或改控件迟早会崩。统一用 after() 在主线程轮询读状态，简单且稳。
+托盘线程同理：它只往 actions 队列丢 "show" / "quit"，主线程轮询处理。
 
 布局
 ----
@@ -32,6 +34,7 @@ r"""指针缩放 —— 图形界面（v1.1 新版面）
 
 import argparse
 import os
+import queue
 import sys
 import tkinter as tk
 from tkinter import ttk
@@ -39,6 +42,7 @@ from tkinter import ttk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pointer_zoom as pz   # noqa: E402
+import pz_tray              # noqa: E402
 import pz_ui as ui           # noqa: E402
 
 VERSION = "1.1.0"
@@ -75,6 +79,10 @@ class ZoomGui:
         self.hook_thread = None
         self._save_job = None
         self._hook_error_reported = False
+        self._shutting_down = False
+        # 托盘：线程只往队列丢字符串，主线程 _tick 里轮询处理
+        self.tray = None
+        self.tray_actions = queue.Queue()
         self.ui = ui.UI(root, "light")
 
         root.title("指针缩放 " + VERSION)
@@ -84,6 +92,8 @@ class ZoomGui:
 
         self._build()
         self._start_engine()
+        if self.cfg.get("close_to_tray"):
+            self._ensure_tray()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.after(60, self._tick)
         self._center()
@@ -324,6 +334,18 @@ class ZoomGui:
         self._lbl(row, "窗口置顶", fg="text2", bg="card").pack(side="left",
                                                                padx=(8, 0))
 
+        self.var_tray = tk.BooleanVar(value=bool(self.cfg.get(
+            "close_to_tray")))
+        ui.Switch(row, u, self.var_tray, command=self._on_toggle_tray
+                  ).pack(side="left", padx=(26, 0))
+        self._lbl(row, "后台运行", fg="text2", bg="card").pack(side="left",
+                                                              padx=(8, 0))
+
+        card.caption("后台运行：点 × 关闭窗口时不退出，缩到通知栏；"
+                     "左键点托盘图标找回窗口，右键菜单可退出"
+                     ).grid(row=4, column=0, columnspan=3, sticky="w",
+                            pady=(10, 0))
+
     # ---- 大小卡 ----
 
     def _build_size(self, card):
@@ -437,6 +459,49 @@ class ZoomGui:
         self.app.start()
         self.hook_thread = pz.HookThread(self.app)
         self.hook_thread.start()
+        # 快捷键退出（Ctrl+Alt+Q）只在钩子线程里发 WM_QUIT，界面收不到 ——
+        # 挂个回调，让它走主线程的完整退出流程（存配置、摘托盘、关窗口）
+        self.app.quit_callback = lambda: self.tray_actions.put("quit")
+
+    # ------------------------------------------------------------ 托盘
+
+    def _ensure_tray(self):
+        """确保托盘图标在。建失败不致命（比如 explorer 没起来），降级运行。"""
+        if self.tray is not None:
+            return
+        try:
+            tray = pz_tray.TrayIcon(self.tray_actions)
+            if tray.start():
+                self.tray = tray
+        except Exception:
+            self.tray = None
+
+    def _drop_tray(self):
+        if self.tray is not None:
+            try:
+                self.tray.stop()
+            except Exception:
+                pass
+            self.tray = None
+
+    def _drain_tray(self):
+        """把托盘线程丢来的动作在主线程里处理掉。"""
+        acts = []
+        while True:
+            try:
+                acts.append(self.tray_actions.get_nowait())
+            except queue.Empty:
+                break
+        for act in acts:
+            if act == "show":
+                self.root.deiconify()
+                self.root.lift()
+                try:
+                    self.root.focus_force()
+                except Exception:
+                    pass
+            elif act == "quit":
+                self._shutdown()
 
     # ------------------------------------------------------------ 事件处理
 
@@ -454,6 +519,7 @@ class ZoomGui:
         c["strength"] = round(self.var_strength.get(), 2)
         c["trigger"] = self.var_trigger.get()
         c["enabled"] = self.var_enabled.get()
+        c["close_to_tray"] = bool(self.var_tray.get())
         self.app.anim.fps = c["fps"]
         # broadcast 没有对应的界面控件，但要原样透传给动画线程
         c["broadcast"] = c.get("broadcast", pz.BROADCAST_SETTLE)
@@ -488,6 +554,13 @@ class ZoomGui:
         else:
             self.app.pressed = False
             self.app.anim.snap(self.app.original)
+
+    def _on_toggle_tray(self):
+        self._apply()
+        if self.cfg["close_to_tray"]:
+            self._ensure_tray()
+        else:
+            self._drop_tray()
 
     def _on_theme_change(self):
         self.ui.set_theme(self.var_theme.get())
@@ -647,6 +720,13 @@ class ZoomGui:
                                   outline="")
 
     def _tick(self):
+        self._drain_tray()
+        try:
+            alive = self.root.winfo_exists()
+        except tk.TclError:
+            return          # _shutdown 刚在这次回调里把窗口销毁了
+        if not alive:
+            return
         cur = self.app.anim.current
         self.var_current.set("%d" % round(cur))
         c = self.cfg
@@ -671,11 +751,25 @@ class ZoomGui:
     # ------------------------------------------------------------ 退出
 
     def on_close(self):
+        """点 × 或「退出」按钮。开了后台运行：只藏窗口；否则完整退出。"""
+        if self._shutting_down:
+            return
+        if self.cfg.get("close_to_tray") and self.tray is not None:
+            self.root.withdraw()
+            return
+        self._shutdown()
+
+    def _shutdown(self):
+        """完整退出：存配置、摘托盘、停钩子、还原指针、关窗口。幂等。"""
+        if self._shutting_down:
+            return
+        self._shutting_down = True
         try:
             self._apply()
             if self._save_job:
                 self.root.after_cancel(self._save_job)
             pz.save_config(self.cfg_path, self.cfg)
+            self._drop_tray()
             if self.hook_thread:
                 self.hook_thread.stop()
             self.app.restore()

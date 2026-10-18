@@ -127,6 +127,8 @@ def main():
 
     cfg_path = args.config or os.path.join(ROOT, "pointer-zoom.ini")
     cfg = pz.load_config(cfg_path)
+    # 截图工具只是看看界面长什么样，别真往通知栏挂图标
+    cfg["close_to_tray"] = False
 
     root = tk.Tk()
     gui = pg.ZoomGui(root, cfg, cfg_path)

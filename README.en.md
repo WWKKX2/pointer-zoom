@@ -8,7 +8,7 @@ English · [中文](README.md)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![python](https://img.shields.io/badge/python-3.8%2B-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-127%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-152%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
 | Light theme | Dark theme |
@@ -28,6 +28,8 @@ English · [中文](README.md)
 - **Modern GUI** — rounded card layout with hand-drawn sliders, switches and segmented
   controls, light / dark themes switchable in one click; live sliders, and a curve
   preview that plots the *actual pixel-size trajectory*
+- **Run in background** — closing the window minimizes to the notification area;
+  left-click the tray icon to bring it back, right-click to quit (toggleable in settings)
 - **Pointer stays usable** — it moves, clicks and drags normally during the animation
 - **Native system scaling** — the cursor is never hidden, redrawn, or input-forwarded
 - **Four layers of safety** so a crash can never leave your pointer stuck oversized
@@ -68,6 +70,9 @@ For a windowless background process, double-click **`start_nogui.bat`** instead:
 Changes made in the GUI are saved back to `pointer-zoom.ini` automatically. You can also edit that file by hand — see [`pointer-zoom.ini.example`](pointer-zoom.ini.example).
 
 ```ini
+[general]
+close_to_tray = true      ; closing the window minimizes to the tray; false = exit
+
 [pointer]
 idle_size = 48            ; size at rest, in px. "auto" reuses the current system setting
 click_size = 25           ; size to shrink to while pressed
@@ -193,8 +198,9 @@ pointer-zoom/
 ├─ src/
 │  ├─ pointer_gui.py         tkinter GUI layout
 │  ├─ pz_ui.py               UI skin layer: palette + rounded cards + drawn widgets
+│  ├─ pz_tray.py             notification-area icon (Shell_NotifyIconW, stdlib only)
 │  └─ pointer_zoom.py        core (hook / animation / config)
-├─ tests/                    test suite (127 checks)
+├─ tests/                    test suite (152 checks)
 ├─ tools/
 │  ├─ verify_spi.py          verify the undocumented SPI works
 │  ├─ screenshot.py          GUI screenshot helper
