@@ -44,7 +44,9 @@ import pz_ui as ui           # noqa: E402
 VERSION = "1.1.0"
 SUBTITLE = "按下鼠标时动画缩放系统光标"
 
-CARD_W = 528                 # 卡片宽；窗口 = CARD_W + 左右外边距
+CARD_W = 528                 # 卡片初始宽度（窗口可拖宽，卡片会跟着拉伸）
+MIN_W = 620                  # 窗口最小宽：卡片 + 内边距 + 滚动条
+MIN_H = 440                  # 窗口最小高
 
 CURVES = sorted(pz.CURVES.keys())
 TRIGGERS = [("left", "左键"), ("right", "右键"),
@@ -76,7 +78,7 @@ class ZoomGui:
         self.ui = ui.UI(root, "light")
 
         root.title("指针缩放 " + VERSION)
-        root.resizable(False, False)
+        root.resizable(True, True)
         self.ui.reg(root, bg="bg")
         self._style_ttk()
 
@@ -119,26 +121,89 @@ class ZoomGui:
         root.update_idletasks()
         sw = root.winfo_screenwidth()
         sh = root.winfo_screenheight()
-        w = root.winfo_width() or root.winfo_reqwidth()
-        h = root.winfo_height() or root.winfo_reqheight()
-        root.geometry("+%d+%d" % (max(0, (sw - w) // 2), max(0, (sh - h) // 3)))
+        w = max(MIN_W, min(root.winfo_reqwidth(), sw - 60))
+        h = max(MIN_H, min(root.winfo_reqheight(), sh - 140))
+        root.minsize(MIN_W, MIN_H)
+        root.resizable(True, True)
+        root.geometry("%dx%d" % (w, h))
+        # 显式给过一次尺寸后，tkinter 就不再自动跟随内容伸缩了；
+        # 之后内容变高由滚动区兜底，不会和用户拖拽窗口打架。
+        root.update_idletasks()
+        root.geometry("+%d+%d" % (max(0, (sw - w) // 2),
+                                  max(0, (sh - h) // 4)))
 
-    def _card(self, outer, pady=0):
-        """建一张满宽卡片并返回它。"""
-        card = ui.Card(outer, self.ui, width=CARD_W)
+    def _card(self, pady=0):
+        """建一张卡片，并把它的高度变化上报给滚动区。"""
+        card = ui.Card(self.viewport, self.ui, width=CARD_W,
+                       on_fit=self._update_scrollregion)
         card.pack(fill="x", pady=(pady, 0))
         return card
+
+    # ------------------------------------------------------------ 滚动区
+
+    def _update_scrollregion(self, *_a):
+        if getattr(self, "scroll", None) is None:
+            return
+        self.scroll.configure(scrollregion=self.scroll.bbox("all"))
+        # canvas 的"期望高度"跟上内容，初始窗口尺寸才能按内容定
+        self.scroll.configure(height=max(120, self.viewport.winfo_reqheight()))
+
+    def _on_scroll_resize(self, _evt):
+        w = self.scroll.winfo_width()
+        if w > 1:
+            # 卡片宽度跟着 canvas 走，窗口拖多宽卡片就多宽
+            self.scroll.itemconfigure(self._scroll_win, width=w)
+        self._update_scrollregion()
+
+    def _on_wheel(self, evt):
+        # Windows 滚轮一档 delta=120；用固定档数而不是 delta/120，
+        # 不然小 delta 的触摸板会除出 0 滚不动
+        self.scroll.yview_scroll(3 if evt.delta > 0 else -3, "units")
+        return "break"
+
+    def _build_scroller(self, parent):
+        """中间的可滚动区：一个 Canvas 里装着 viewport Frame。
+
+        头部和底部按钮留在滚动区外面（固定不动），滚的只有中间那排卡片。
+        """
+        self.scroll = tk.Canvas(parent, bg=self.ui.pal["bg"],
+                                highlightthickness=0, bd=0)
+        self.scroll.grid(row=0, column=0, sticky="nsew")
+        self.ui.reg(self.scroll, bg="bg")
+        self.scrollbar = ui.Scrollbar(parent, self.ui,
+                                      command=self.scroll.yview)
+        self.scrollbar.grid(row=0, column=1, sticky="ns", padx=(8, 0))
+        self.scroll.configure(yscrollcommand=self.scrollbar.set)
+
+        self.viewport = self._frm(parent, "bg")
+        self._scroll_win = self.scroll.create_window(0, 0,
+                                                    window=self.viewport,
+                                                    anchor="nw")
+        self.scroll.bind("<Configure>", self._on_scroll_resize)
+        self.viewport.bind("<Configure>",
+                           lambda _e: self._update_scrollregion())
+        # 事件会从子控件冒泡到 viewport，所以绑它一个就够；
+        # 指针落在 viewport 之外的空白画布上时，才走 scroll 自己那份。
+        self.viewport.bind("<MouseWheel>", self._on_wheel)
+        self.scroll.bind("<MouseWheel>", self._on_wheel)
+        for w in (self.viewport, self.scroll):
+            w.bind("<Prior>", lambda _e: self.scroll.yview_scroll(-1, "pages"))
+            w.bind("<Next>", lambda _e: self.scroll.yview_scroll(1, "pages"))
+            w.bind("<Home>", lambda _e: self.scroll.yview_moveto(0.0))
+            w.bind("<End>", lambda _e: self.scroll.yview_moveto(1.0))
 
     # ------------------------------------------------------------ 界面构建
 
     def _build(self):
         p = self.ui.pal
         outer = self._frm(self.root)
-        outer.pack(fill="both", expand=True, padx=18, pady=16)
+        outer.pack(fill="both", expand=True, padx=14, pady=14)
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(1, weight=1)
 
-        # ---------------- 头部 ----------------
+        # ---------------- 头部（固定，不随内容滚动）----------------
         head = self._frm(outer)
-        head.pack(fill="x", pady=(0, 14))
+        head.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 12))
 
         left = self._frm(head)
         left.pack(side="left", anchor="w")
@@ -153,34 +218,41 @@ class ZoomGui:
                      self.var_theme, command=self._on_theme_change,
                      bg="bg").pack(anchor="e")
 
+        # ---------------- 中间：可滚动的卡片区 ----------------
+        mid = self._frm(outer)
+        mid.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        mid.rowconfigure(0, weight=1)
+        mid.columnconfigure(0, weight=1)
+        self._build_scroller(mid)
+
         # ---------------- 状态 ----------------
-        card = self._card(outer)
+        card = self._card()
         self._build_status(card)
         card.fit()
 
         # ---------------- 大小 ----------------
-        card = self._card(outer, pady=10)
+        card = self._card(pady=10)
         self._build_size(card)
         card.fit()
 
         # ---------------- 动画 ----------------
-        card = self._card(outer, pady=10)
+        card = self._card(pady=10)
         self._build_anim(card)
         card.fit()
 
         # ---------------- 曲线 ----------------
-        card = self._card(outer, pady=10)
+        card = self._card(pady=10)
         self._build_curve(card)
         card.fit()
 
         # ---------------- 触发按键 ----------------
-        card = self._card(outer, pady=10)
+        card = self._card(pady=10)
         self._build_trigger(card)
         card.fit()
 
-        # ---------------- 底部 ----------------
+        # ---------------- 底部（固定，不随内容滚动）----------------
         foot = self._frm(outer)
-        foot.pack(fill="x", pady=(14, 0))
+        foot.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(12, 0))
 
         row = self._frm(foot)
         row.pack(fill="x")
@@ -195,6 +267,8 @@ class ZoomGui:
 
         self.lbl_footer = self._lbl(foot, "", fg="text2", font="f_small")
         self.lbl_footer.pack(fill="x", pady=(8, 0))
+
+        self._update_scrollregion()
 
     # ---- 状态卡 ----
 

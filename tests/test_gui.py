@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 
 import pointer_zoom as pz      # noqa: E402
 import pointer_gui as pg       # noqa: E402
+import pz_ui as ui             # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -48,6 +49,15 @@ def main():
 
     root = tk.Tk()
     gui = None
+    # tkinter 回调里抛出的异常只会往 stderr 刷一段 traceback，界面照样「正常」显示，
+    # 极难发现（v1.1 的按钮就踩过：mix() 收到色板键名，Configure 事件里炸掉）。
+    # 装一个捕获器，把这类问题变成可断言的失败。
+    cb_errors = []
+
+    def _record_exc(exc, val, tb):
+        cb_errors.append("%s: %s" % (exc.__name__, val))
+
+    root.report_callback_exception = _record_exc
     try:
         gui = pg.ZoomGui(root, cfg, tmp_ini)
         pump(root, 0.6)
@@ -141,6 +151,88 @@ def main():
         registered = [k for k, v in gui.app.hotkeys.items() if v]
         check(f"快捷键注册链路正常（{len(registered)}/3 成功）",
               len(registered) >= 1, f"{gui.app.hotkeys}")
+
+        print("\n7) 自绘控件与滚动区")
+        check("前半段无回调异常", not cb_errors, f"{cb_errors[:2]}")
+
+        # 先快照，再往下用 —— 后面要建临时控件，别把它混进来
+        canvases = [o for o in gui.ui._extras
+                    if isinstance(o, tk.Canvas) and o is not gui.canvas]
+        empties = [type(o).__name__ for o in canvases if not o.find_all()]
+        check("自绘控件都画出了内容", not empties,
+              f"空白: {empties}" if empties else "%d 个" % len(canvases))
+
+        # 三种按钮各建一遍，跑完 update 再看图元数 —— 光建出来不算，
+        # 真正的 bug 藏在 Configure 事件的 redraw 里。
+        # 注意：不能往 root 里 pack（主窗口已被 geometry/minsize 固定，
+        # 新 pack 进去的控件会被压成 1x1 且不映射），得用独立 Toplevel。
+        top = tk.Toplevel(root)
+        top.withdraw()
+        kinds = {}
+        for kind in ("primary", "secondary", "ghost"):
+            b = ui.Button(top, gui.ui, kind, kind=kind, bg="bg")
+            b.pack()
+            kinds[kind] = b
+        top.deiconify()
+        pump(root, 0.3)
+        bad = [k for k, b in kinds.items() if len(b.find_all()) < 2]
+        check("三种按钮都画全了", not bad, f"异常: {bad}" if bad else "3 种")
+        top.destroy()
+        pump(root, 0.15)
+
+        # 滚动：内容必须比可视区高，scrollregion 要覆盖全部内容
+        vis = gui.scroll.winfo_height()
+        total = gui.viewport.winfo_reqheight()
+        check("滚动区已启用", vis > 1 and total > vis,
+              f"可视 {vis} / 内容 {total}")
+        region = gui.scroll.cget("scrollregion")
+        check("scrollregion 覆盖全部内容", str(int(total)) in region, region)
+        check("滚动前位于顶部", gui.scroll.yview()[0] < 1e-6)
+        gui.scroll.yview_moveto(1.0)
+        pump(root, 0.25)
+        check("可以滚到底", gui.scroll.yview()[1] > 0.999, f"{gui.scroll.yview()}")
+        gui.scroll.yview_moveto(0.0)
+        pump(root, 0.25)
+
+        # 缩放：窗口拖宽后卡片必须跟着变宽，并且高度要按新宽度重量
+        before_w = [c.winfo_width() for c in gui.viewport.winfo_children()]
+        before_h = gui.viewport.winfo_reqheight()
+        root.geometry("900x600")
+        pump(root, 0.6)
+        after_w = [c.winfo_width() for c in gui.viewport.winfo_children()]
+        after_h = gui.viewport.winfo_reqheight()
+        check("窗口可缩放", all(root.resizable()), f"{root.resizable()}")
+        check("卡片随窗口变宽", after_w and before_w
+              and after_w[0] > before_w[0] + 100,
+              f"{before_w[0]} -> {after_w[0]}px")
+        # 真正的断言是「每张卡片都按新宽度重量过」，不是高度一定变 ——
+        # 界面里没有会随宽度换行的长文本，高度不变是正常结果
+        cards = [c for c in gui.viewport.winfo_children()]
+        unsynced = [c.winfo_width() for c in cards
+                    if getattr(c, "_fit_w", -1) != c.winfo_width()]
+        check("所有卡片已按新宽度重量", not unsynced,
+              f"未同步宽度: {unsynced}" if unsynced else "%d 张" % len(cards))
+        new_region = gui.scroll.cget("scrollregion")
+        check("scrollregion 宽度跟着更新", new_region != region,
+              f"{region} -> {new_region}")
+        region = new_region
+        root.geometry("620x760")
+        pump(root, 0.5)
+
+        print("\n8) 换肤")
+        gui.var_theme.set("dark")
+        gui._on_theme_change()
+        pump(root, 0.35)
+        check("深色主题重绘无异常", not cb_errors, f"{cb_errors[:2]}")
+        empties = [type(o).__name__ for o in canvases if not o.find_all()]
+        check("深色下控件仍非空", not empties,
+              f"空白: {empties}" if empties else "%d 个" % len(canvases))
+        gui.var_theme.set("light")
+        gui._on_theme_change()
+        pump(root, 0.35)
+        check("切回浅色无异常", not cb_errors, f"{cb_errors[:2]}")
+
+        check("全程无回调异常", not cb_errors, f"{cb_errors[:3]}")
 
     finally:
         if gui:

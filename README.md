@@ -8,7 +8,7 @@
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![python](https://img.shields.io/badge/python-3.8%2B-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-112%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-127%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
 | 浅色主题 | 深色主题 |
@@ -214,7 +214,7 @@ pointer-zoom/
 │  ├─ pointer_gui.py         图形界面布局（tkinter）
 │  ├─ pz_ui.py               界面外观层：色板 + 圆角卡片 + 自绘控件
 │  └─ pointer_zoom.py        主程序（钩子 / 动画 / 配置）
-├─ tests/                    测试套件（112 项）
+├─ tests/                    测试套件（127 项）
 ├─ tools/
 │  ├─ verify_spi.py          验证系统 API 是否可用
 │  ├─ screenshot.py          界面截图工具

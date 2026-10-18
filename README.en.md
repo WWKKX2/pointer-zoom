@@ -8,7 +8,7 @@ English · [中文](README.md)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![python](https://img.shields.io/badge/python-3.8%2B-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-112%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-127%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
 | Light theme | Dark theme |
@@ -194,7 +194,7 @@ pointer-zoom/
 │  ├─ pointer_gui.py         tkinter GUI layout
 │  ├─ pz_ui.py               UI skin layer: palette + rounded cards + drawn widgets
 │  └─ pointer_zoom.py        core (hook / animation / config)
-├─ tests/                    test suite (112 checks)
+├─ tests/                    test suite (127 checks)
 ├─ tools/
 │  ├─ verify_spi.py          verify the undocumented SPI works
 │  ├─ screenshot.py          GUI screenshot helper

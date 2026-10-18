@@ -240,19 +240,53 @@ class UI:
                 pass
 
 
+# --------------------------------------------------------------------- 滚动条
+
+class Scrollbar(tk.Scrollbar):
+    """细滚动条。用原生 tk.Scrollbar 而不是 ttk 的，就是为了能自定义颜色。
+
+    拇指、轨道、hover 三种色都来自色板，`retheme()` 里重刷。
+    """
+
+    WIDTH = 10
+
+    def __init__(self, master, ui, **kw):
+        self.ui = ui
+        kw.setdefault("width", self.WIDTH)
+        kw.setdefault("highlightthickness", 0)
+        kw.setdefault("bd", 0)
+        kw.setdefault("relief", "flat")
+        kw.setdefault("elementborderwidth", 0)
+        super().__init__(master, **kw)
+        ui.extra(self)
+        self.retheme()
+
+    def retheme(self):
+        p = self.ui.pal
+        try:
+            self.configure(bg=p["text3"], troughcolor=p["bg"],
+                           activebackground=p["text2"])
+        except tk.TclError:
+            pass
+
+
 # --------------------------------------------------------------------- 卡片
 
 class Card(tk.Canvas):
     """圆角卡片。内部挂一个裸 Frame，控件照常 grid/pack 排。
 
-    高度不自适应，内容建完后调一次 `fit()`。
+    高度不自适应（Canvas 不会按内容撑高），内容建完后调 `fit()`。
+    之后每次**宽度**变化会自动重新量高度 —— 文字换行跟着变，高度必须重算。
     """
 
     RADIUS = 14
 
-    def __init__(self, master, ui, pad=18, **kw):
+    def __init__(self, master, ui, pad=18, on_fit=None, **kw):
         self.ui = ui
         self.pad = pad
+        self.on_fit = on_fit
+        self._fit_w = -1
+        self._refitting = False
         kw.setdefault("highlightthickness", 0)
         kw.setdefault("bd", 0)
         kw.setdefault("bg", ui.c("bg"))
@@ -278,6 +312,25 @@ class Card(tk.Canvas):
         self.itemconfigure(self._win,
                            width=max(10, w - 2 * self.pad - 2))
         self.coords(self._win, self.pad + 1, self.pad + 1)
+        if self._fit_w != w:
+            self._refit(w)
+
+    def _refit(self, w):
+        if self._refitting:
+            return
+        self._refitting = True
+        try:
+            self._fit_w = w
+            self.inner.update_idletasks()
+            self.configure(height=self.inner.winfo_reqheight()
+                           + 2 * self.pad + 2)
+        finally:
+            self._refitting = False
+        if self.on_fit:
+            try:
+                self.on_fit()
+            except Exception:
+                pass
 
     def retheme(self):
         self.configure(bg=self.ui.c("bg"))
@@ -289,10 +342,7 @@ class Card(tk.Canvas):
         self.update_idletasks()
         # 还没映射时 winfo_width 是 1，退回 reqwidth（构造时显式给的 width）
         w = self.winfo_width() or self.winfo_reqwidth()
-        self.itemconfigure(self._win, width=max(10, w - 2 * self.pad - 2))
-        self.inner.update_idletasks()
-        self.configure(height=self.inner.winfo_reqheight() + 2 * self.pad + 2)
-        self._resize()
+        self._refit(w)
 
     # ---- 卡片内常用小件 ----
 
@@ -512,7 +562,8 @@ class Switch(tk.Canvas):
         else:
             kx = pad + 11
         self.create_oval(kx - knob_r, cy - knob_r, kx + knob_r, cy + knob_r,
-                         fill=p["thumb"], outline=tint(track, "ffffff", 0.72),
+                         fill=p["thumb"],
+                         outline=tint(track, p["thumb"], 0.72),
                          width=2)
 
     def retheme(self):
@@ -692,19 +743,20 @@ class Button(tk.Canvas):
 
         if self.kind == "primary":
             base = p["accent"]
-            fill = mix(base, "ffffff", 0.18 if self._hover else 0.0)
+            fill = mix(base, p["on_accent"], 0.18 if self._hover else 0.0)
             fg = p["on_accent"]
         elif self.kind == "secondary":
             base = p["card_alt"]
-            fill = mix(base, "accent", 0.10 if self._hover else 0.0)
+            # 注意这里要传色值，不能传色板键名 —— mix() 只认 "#rrggbb"
+            fill = mix(base, p["accent"], 0.10 if self._hover else 0.0)
             fg = p["text"]
         else:                                   # ghost
             base = parent_bg
-            fill = mix(base, "text", 0.05 if self._hover else 0.0)
+            fill = mix(base, p["text"], 0.05 if self._hover else 0.0)
             fg = p["text2"]
 
         if self._down and self.kind == "primary":
-            fill = mix(fill, "000000", 0.10)
+            fill = mix(fill, "#000000", 0.10)
 
         if self.kind == "ghost":
             round_rect(self, 0, 0, w - 1, h - 1, self.RADIUS, fill=fill)
