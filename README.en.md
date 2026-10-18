@@ -11,7 +11,9 @@ English · [中文](README.md)
 ![tests](https://img.shields.io/badge/tests-112%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
-![GUI preview](docs/images/gui-preview.png)
+| Light theme | Dark theme |
+|---|---|
+| ![Light theme](docs/images/gui-preview.png) | ![Dark theme](docs/images/gui-preview-dark.png) |
 
 ```
 48px at rest ──press (80ms ease_in_quad)───► 25px
@@ -23,7 +25,9 @@ English · [中文](README.md)
 
 - **Shrink on press, restore on release** — independent duration and easing curve for each direction
 - **17 built-in easing curves**, including overshooting `back` / `elastic` / `bounce`
-- **GUI** with live sliders and a curve preview canvas that plots the *actual pixel-size trajectory*
+- **Modern GUI** — rounded card layout with hand-drawn sliders, switches and segmented
+  controls, light / dark themes switchable in one click; live sliders, and a curve
+  preview that plots the *actual pixel-size trajectory*
 - **Pointer stays usable** — it moves, clicks and drags normally during the animation
 - **Native system scaling** — the cursor is never hidden, redrawn, or input-forwarded
 - **Four layers of safety** so a crash can never leave your pointer stuck oversized
@@ -187,7 +191,8 @@ pointer-zoom/
 ├─ reset.bat                 restore the original size
 ├─ pointer-zoom.ini.example  sample config
 ├─ src/
-│  ├─ pointer_gui.py         tkinter GUI
+│  ├─ pointer_gui.py         tkinter GUI layout
+│  ├─ pz_ui.py               UI skin layer: palette + rounded cards + drawn widgets
 │  └─ pointer_zoom.py        core (hook / animation / config)
 ├─ tests/                    test suite (112 checks)
 ├─ tools/
@@ -200,7 +205,8 @@ pointer-zoom/
 └─ docs/
    ├─ 技术方案.md             full design doc (Chinese, incl. flicker root cause)
    └─ images/
-      └─ gui-preview.png     GUI preview
+      ├─ gui-preview.png      GUI preview (light)
+      └─ gui-preview-dark.png GUI preview (dark)
 ```
 
 ## Development

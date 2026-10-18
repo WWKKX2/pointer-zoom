@@ -11,7 +11,9 @@
 ![tests](https://img.shields.io/badge/tests-112%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
-![界面预览](docs/images/gui-preview.png)
+| 浅色主题 | 深色主题 |
+|---|---|
+| ![浅色主题](docs/images/gui-preview.png) | ![深色主题](docs/images/gui-preview-dark.png) |
 
 ```
 平时 48px  ──按下（80ms ease_in_quad）───►  25px
@@ -23,7 +25,8 @@
 
 - **按下缩小、松开恢复**，两个方向各自独立配置时长与缓动曲线
 - **17 条内置缓动曲线**，含 `back` / `elastic` / `bounce` 等过冲曲线
-- **图形界面**：拖滑块即时生效，曲线预览画布画出真实尺寸轨迹
+- **现代化图形界面**：圆角卡片排版 + 自绘滑块/开关/分段选择器，日间 / 夜间双主题
+  一键切换；拖滑块即时生效，曲线预览画出**真实尺寸轨迹**
 - **指针全程可用**：动画期间指针照常移动、点击、拖拽，交互零影响
 - **系统原生缩放**：不隐藏光标、不自绘、不转发输入，热区由系统按比例处理
 - **四层安全兜底**：进程崩溃也不会把指针卡在大尺寸
@@ -208,7 +211,8 @@ pointer-zoom/
 ├─ reset.bat                 一键恢复原始大小
 ├─ pointer-zoom.ini.example  配置示例
 ├─ src/
-│  ├─ pointer_gui.py         图形界面（tkinter）
+│  ├─ pointer_gui.py         图形界面布局（tkinter）
+│  ├─ pz_ui.py               界面外观层：色板 + 圆角卡片 + 自绘控件
 │  └─ pointer_zoom.py        主程序（钩子 / 动画 / 配置）
 ├─ tests/                    测试套件（112 项）
 ├─ tools/
@@ -221,7 +225,8 @@ pointer-zoom/
 └─ docs/
    ├─ 技术方案.md             完整设计文档（含闪烁根因分析）
    └─ images/
-      └─ gui-preview.png     界面预览图
+      ├─ gui-preview.png      界面预览图（浅色）
+      └─ gui-preview-dark.png 界面预览图（深色）
 ```
 
 ## 开发与测试
