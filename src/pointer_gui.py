@@ -46,7 +46,7 @@ import pointer_zoom as pz   # noqa: E402
 import pz_tray              # noqa: E402
 import pz_ui as ui           # noqa: E402
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 SUBTITLE = "按下鼠标时动画缩放系统光标"
 
 CARD_W = 528                 # 卡片初始宽度（窗口可拖宽，卡片会跟着拉伸）
