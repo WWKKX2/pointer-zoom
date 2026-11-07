@@ -56,7 +56,8 @@ WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT,
 
 # ---- Shell_NotifyIconW ----
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
-NIF_MESSAGE, NIF_ICON, NIF_TIP = 0x01, 0x02, 0x04
+NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 0x01, 0x02, 0x04, 0x10
+NIIF_INFO = 0x01
 
 
 class NOTIFYICONDATAW(ctypes.Structure):
@@ -238,6 +239,7 @@ class TrayIcon:
         self._hwnd = None
         self._icon = None
         self._added = False
+        self._add_error = 0
         self._ready = threading.Event()
         self._wndproc_ref = None       # WNDPROC 回调必须持强引用，否则被 GC
         self._cb_msg = WM_APP_TRAY
@@ -313,7 +315,9 @@ class TrayIcon:
             self._cleanup()
             user32.PostQuitMessage(0)
         elif msg == self._cb_msg:
-            if lp in (WM_LBUTTONUP, WM_LBUTTONDBLCLK):
+            if lp == WM_LBUTTONUP:
+                self.actions.put("toggle")     # 单击 = 显示 / 隐藏窗口
+            elif lp == WM_LBUTTONDBLCLK:
                 self.actions.put("show")
             elif lp == WM_RBUTTONUP:
                 self._show_menu(hwnd)
@@ -339,6 +343,20 @@ class TrayIcon:
         elif ret == ID_QUIT:
             self.actions.put("quit")
 
+    def notify(self, title, text):
+        """弹一条托盘气泡通知（图标在溢出区也会进系统通知中心）。"""
+        if not self._added or not self._hwnd:
+            return False
+        nid = NOTIFYICONDATAW()
+        nid.cbSize = ctypes.sizeof(NOTIFYICONDATAW)
+        nid.hWnd = self._hwnd
+        nid.uID = 1
+        nid.uFlags = NIF_INFO
+        nid.szInfo = text
+        nid.szInfoTitle = title
+        nid.dwInfoFlags = NIIF_INFO
+        return bool(shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(nid)))
+
     # ------------------------------------------------------------ 图标增删
 
     def _add(self):
@@ -353,6 +371,8 @@ class TrayIcon:
         nid.hIcon = self._icon
         nid.szTip = self.TIP
         self._added = bool(shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)))
+        if not self._added:
+            self._add_error = ctypes.get_last_error()   # 排查用
 
     def _cleanup(self):
         """摘图标。stop() / WM_DESTROY / atexit 都会走到，幂等。"""

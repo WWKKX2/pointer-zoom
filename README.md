@@ -8,7 +8,7 @@
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![python](https://img.shields.io/badge/python-3.8%2B-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-152%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-159%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
 | 浅色主题 | 深色主题 |
@@ -27,7 +27,7 @@
 - **17 条内置缓动曲线**，含 `back` / `elastic` / `bounce` 等过冲曲线
 - **现代化图形界面**：圆角卡片排版 + 自绘滑块/开关/分段选择器，日间 / 夜间双主题
   一键切换；拖滑块即时生效，曲线预览画出**真实尺寸轨迹**
-- **后台运行**：关闭窗口不退出，缩到通知栏；左键点托盘图标找回窗口、右键可退出
+- **后台运行**：关闭窗口不退出，缩到通知栏；左键点托盘图标显示/隐藏窗口，右键可退出
   （设置里可关掉）
 - **指针全程可用**：动画期间指针照常移动、点击、拖拽，交互零影响
 - **系统原生缩放**：不隐藏光标、不自绘、不转发输入，热区由系统按比例处理
@@ -220,7 +220,7 @@ pointer-zoom/
 │  ├─ pz_ui.py               界面外观层：色板 + 圆角卡片 + 自绘控件
 │  ├─ pz_tray.py             通知栏图标（Shell_NotifyIconW，纯标准库）
 │  └─ pointer_zoom.py        主程序（钩子 / 动画 / 配置）
-├─ tests/                    测试套件（152 项）
+├─ tests/                    测试套件（159 项）
 ├─ tools/
 │  ├─ verify_spi.py          验证系统 API 是否可用
 │  ├─ screenshot.py          界面截图工具

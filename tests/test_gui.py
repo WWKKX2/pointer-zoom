@@ -288,10 +288,40 @@ def main():
         gui.tray_actions.put("show")
         pump(root, 0.5)
         check("托盘 show -> 窗口找回", bool(root.winfo_viewable()))
+        gui.tray_actions.put("toggle")
+        pump(root, 0.5)
+        check("托盘 toggle -> 再次隐藏", not root.winfo_viewable())
+        gui.tray_actions.put("toggle")
+        pump(root, 0.5)
+        check("托盘 toggle -> 再点找回", bool(root.winfo_viewable()))
         gui.tray_actions.put("quit")
         check("托盘 quit -> 彻底退出", pump_until_gone(root))
         check("退出后钩子线程已停",
               not gui.hook_thread.is_alive())
+
+        print("\n10) 托盘丢失时的兜底（绝不静默退出）")
+        # 场景：开关开着，但托盘图标没了（比如启动失败）。
+        # 点 × 必须先重试建托盘；重建失败要警告用户，然后才允许退出。
+        ensured, warned = [], []
+        cfg2 = pz.load_config(tmp_ini)
+        cfg2["close_to_tray"] = False        # 初始化阶段别建真托盘
+        root2 = tk.Tk()
+        root2.withdraw()
+        gui2 = pg.ZoomGui(root2, cfg2, tmp_ini)
+        gui2._ensure_tray = lambda: ensured.append(1)   # 模拟重建失败
+        gui2._warn_no_tray = lambda: warned.append(1)   # 别真弹 MessageBox
+        gui2.var_tray.set(True)
+        gui2._apply()                        # 开关开着（cfg=True），但 tray 仍 None
+        check("第二实例无托盘", gui2.tray is None)
+        gui2.on_close()
+        try:
+            gone2 = not root2.winfo_exists()
+        except tk.TclError:
+            gone2 = True
+        check("点 × 先重试建托盘", ensured == [1], f"ensured={ensured}")
+        check("重建失败 -> 警告后完整退出", warned == [1] and gone2,
+              f"warned={warned} gone={gone2}")
+        check("第二实例钩子已停", not gui2.hook_thread.is_alive())
 
     finally:
         if gui:

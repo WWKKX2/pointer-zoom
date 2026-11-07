@@ -33,6 +33,7 @@ r"""指针缩放 —— 图形界面（v1.1 新版面）
 """
 
 import argparse
+import ctypes
 import os
 import queue
 import sys
@@ -80,6 +81,7 @@ class ZoomGui:
         self._save_job = None
         self._hook_error_reported = False
         self._shutting_down = False
+        self._hide_hinted = False     # 首次藏进托盘时弹一次气泡提示
         # 托盘：线程只往队列丢字符串，主线程 _tick 里轮询处理
         self.tray = None
         self.tray_actions = queue.Queue()
@@ -342,7 +344,7 @@ class ZoomGui:
                                                               padx=(8, 0))
 
         card.caption("后台运行：点 × 关闭窗口时不退出，缩到通知栏；"
-                     "左键点托盘图标找回窗口，右键菜单可退出"
+                     "左键点托盘图标显示 / 隐藏窗口，右键菜单可退出"
                      ).grid(row=4, column=0, columnspan=3, sticky="w",
                             pady=(10, 0))
 
@@ -473,8 +475,14 @@ class ZoomGui:
             tray = pz_tray.TrayIcon(self.tray_actions)
             if tray.start():
                 self.tray = tray
+                return
         except Exception:
-            self.tray = None
+            pass
+        self.tray = None
+        try:
+            self._flash("通知栏图标创建失败，后台运行暂不可用")
+        except Exception:
+            pass
 
     def _drop_tray(self):
         if self.tray is not None:
@@ -494,14 +502,26 @@ class ZoomGui:
                 break
         for act in acts:
             if act == "show":
-                self.root.deiconify()
-                self.root.lift()
+                self._show_window()
+            elif act == "toggle":
                 try:
-                    self.root.focus_force()
-                except Exception:
-                    pass
+                    visible = bool(self.root.winfo_viewable())
+                except tk.TclError:
+                    return          # 窗口刚被销毁
+                if visible:
+                    self.root.withdraw()
+                else:
+                    self._show_window()
             elif act == "quit":
                 self._shutdown()
+
+    def _show_window(self):
+        self.root.deiconify()
+        self.root.lift()
+        try:
+            self.root.focus_force()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ 事件处理
 
@@ -751,13 +771,41 @@ class ZoomGui:
     # ------------------------------------------------------------ 退出
 
     def on_close(self):
-        """点 × 或「退出」按钮。开了后台运行：只藏窗口；否则完整退出。"""
+        """点 × 或「退出」按钮。开了后台运行：只藏窗口；否则完整退出。
+
+        托盘图标不在时先**重试一次**，实在建不起来就弹窗告知再退出 ——
+        绝不静默消失（窗口 withdraw 后连任务栏图标都没了，用户会以为
+        程序没了；Win11 还会把新应用的托盘图标收进溢出区）。
+        """
         if self._shutting_down:
             return
-        if self.cfg.get("close_to_tray") and self.tray is not None:
-            self.root.withdraw()
-            return
+        if self.cfg.get("close_to_tray"):
+            if self.tray is None:
+                self._ensure_tray()
+            if self.tray is not None:
+                self.root.withdraw()
+                if not self._hide_hinted:
+                    self._hide_hinted = True
+                    try:
+                        self.tray.notify("指针缩放仍在后台运行",
+                                         "左键点通知栏图标找回窗口，"
+                                         "右键图标可退出")
+                    except Exception:
+                        pass
+                return
+            self._warn_no_tray()
         self._shutdown()
+
+    def _warn_no_tray(self):
+        """托盘建不起来时的兜底告知（模态弹窗，pythonw 下也能弹）。"""
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "通知栏图标创建失败，无法最小化到后台。\n"
+                "点击「确定」后程序将退出。",
+                "指针缩放", 0x30)       # MB_ICONWARNING
+        except Exception:
+            pass
 
     def _shutdown(self):
         """完整退出：存配置、摘托盘、停钩子、还原指针、关窗口。幂等。"""

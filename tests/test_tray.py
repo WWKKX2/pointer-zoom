@@ -106,12 +106,15 @@ def main():
 
     t = pz_tray.TrayIcon(q)
     t._handle(1234, pz_tray.WM_APP_TRAY, 0, pz_tray.WM_LBUTTONUP)
-    check("左键单击 -> show", q.get_nowait() == "show")
+    check("左键单击 -> toggle", q.get_nowait() == "toggle")
     t._handle(1234, pz_tray.WM_APP_TRAY, 0, pz_tray.WM_LBUTTONDBLCLK)
     check("双击 -> show", q.get_nowait() == "show")
     t._handle(1234, pz_tray.WM_APP_TRAY, 0, 0x0200)   # WM_MOUSEMOVE，不该有动作
     t._handle(1234, 0x9999, 0, 0)                     # 无关消息
     check("无关消息不产生动作", q.empty())
+
+    # notify 在图标未挂时必须直接返回 False，不能炸
+    check("未挂图标时 notify 返回 False", t.notify("a", "b") is False)
 
     # 回调里抛异常必须被吞掉（托盘窗口的 wndproc 不能逃异常）
     class Boom:
