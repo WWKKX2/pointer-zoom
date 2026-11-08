@@ -37,8 +37,14 @@ SPI_SETCURSORBASESIZE = 0x2029
 SPIF_SENDCHANGE = 0x02
 
 # 何时广播 WM_SETTINGCHANGE。动画中途逐帧广播是闪烁的元凶，见 apply_size。
-BROADCAST_SETTLE = "settle"        # 只在动画落定时广播一次（默认）
-BROADCAST_EVERY = "every_frame"    # 逐帧广播（旧行为，留作退路）
+# v1.1.2 起连「落定帧广播」也去掉了：我们从不写注册表，注册表里永远是
+# 原始大小 —— 收到广播的程序按注册表重设光标，会把按住时缩小到位的光标
+# 拉回原始值，表现为偶尔抽搐一下。广播到非注册表值有害、广播到注册表值
+# 又毫无意义，所以现在默认完全不广播。尺寸生效发生在 SPI 调用内部
+# （实测带不带广播耗时几乎相同），不依赖广播。
+BROADCAST_NONE = "none"            # 从不广播（默认，v1.1.2）
+BROADCAST_SETTLE = "settle"        # 历史遗留值，现义同 none（旧 ini 自动升级）
+BROADCAST_EVERY = "every_frame"    # 逐帧广播（旧行为，仅作诊断退路）
 
 CURSOR_KEY = r"Control Panel\Cursors"
 A11Y_KEY = r"SOFTWARE\Microsoft\Accessibility"
@@ -324,9 +330,8 @@ class Animator(threading.Thread):
         self._curve = _c_linear
         self._strength = 1.70158
         self._applied = None          # 已下发给系统的整数像素值
-        self._settle_done = True      # 当前这次动画是否已经广播过落定帧
         self._active = False
-        self.broadcast = BROADCAST_SETTLE
+        self.broadcast = BROADCAST_NONE
 
     def goto(self, size, duration_ms, curve_name, strength=1.70158):
         with self._lock:
@@ -339,14 +344,13 @@ class Animator(threading.Thread):
             self._active = self._dur > 0 and abs(self.target - self.current) > 0.5
             if not self._active:
                 self.current = self.target
-            else:
-                self._settle_done = False
         if not self._active:
             # 关键：0ms / snap 必须真的下发到系统。
             # 之前这里只改了内存里的 current 就返回，于是「启动时切到平时大小」
             # 「恢复原始大小」「快捷键停用」全是空操作 —— 指针一直停在旧尺寸，
             # 直到下一次动画的第一帧才被顺手带过去，表现为突然一跳。
-            self._apply_now(self.target, notify=True)
+            # notify=False：广播只会让别的程序按注册表原始值重设光标（见顶部说明）。
+            self._apply_now(self.target, notify=False)
         self._wake.set()
 
     def snap(self, size):
@@ -401,14 +405,12 @@ class Animator(threading.Thread):
                         self._active = False
 
                 if done:
-                    # 落定：钉死最终值，并广播一次让系统与各程序同步
-                    if not self._settle_done:
-                        self._apply_now(target, notify=True)
-                        self._settle_done = True
-                    else:
-                        self._apply_now(target, notify=False)
+                    # 落定：把最终值钉死。绝不广播（notify=False）——
+                    # 广播会让别的程序按注册表里的原始尺寸重设光标，
+                    # 按住时缩小到位的 25px 会被拉回 48px，表现为偶尔抽搐。
+                    self._apply_now(target, notify=False)
                 else:
-                    # 动画帧：只改内存，绝不广播
+                    # 动画帧：只改内存，默认也绝不广播
                     self._apply_now(
                         size, notify=self.broadcast == BROADCAST_EVERY)
 
@@ -454,11 +456,12 @@ curve_strength = {strength}
 ; 60 已经足够顺滑（200ms 的动画也有 12 帧），想要更细腻可以往上调，卡就降到 30
 fps = {fps}
 ; 什么时候广播 WM_SETTINGCHANGE：
-;   settle      只在动画落定时广播一次（默认，动画最干净）
-;   every_frame 每帧都广播。这是旧行为，帧率多高就每秒广播多少次；
-;               响应广播的程序会按注册表里的旧尺寸把光标重设回去，
-;               动画期间看起来就是一闪一闪。除非发现指针尺寸不生效，
-;               否则不要改。
+;   none        从不广播（默认）。尺寸生效发生在 SPI 调用内部，不需要广播；
+;               而广播会让收到消息的程序按注册表里的原始尺寸重设光标 ——
+;               注册表永远是原始值（本项目从不写注册表），于是按住时
+;               缩小到位的光标会被拉回原始大小，表现为偶尔抽搐一下。
+;   settle      历史遗留值，现义同 none（旧配置自动升级）。
+;   every_frame 每帧都广播。仅作诊断退路：闪烁 / 抽搐会被放大。
 broadcast = {broadcast}
 
 [hotkeys]
@@ -474,24 +477,28 @@ INI_DEFAULTS = {
     "idle_size": 48, "click_size": 25, "trigger": "left", "enabled": "true",
     "press_ms": 80, "release_ms": 83,
     "press_curve": "ease_in_quad", "release_curve": "ease_out_quad",
-    "strength": "3.0", "fps": 60, "broadcast": BROADCAST_SETTLE,
+    "strength": "3.0", "fps": 60, "broadcast": BROADCAST_NONE,
     "hk_toggle": "ctrl+alt+p", "hk_reset": "ctrl+alt+r", "hk_quit": "ctrl+alt+q",
 }
 
 DEFAULT_INI = INI_TEMPLATE.format(**INI_DEFAULTS)
 
 _BROADCAST_ALIASES = {
-    "settle": BROADCAST_SETTLE, "once": BROADCAST_SETTLE,
-    "end": BROADCAST_SETTLE, "on_settle": BROADCAST_SETTLE,
+    # settle 是历史遗留值：v1.1.2 起落定帧也不再广播，旧 ini 写着 settle
+    # 的自动升级为 none（这正是「偶尔抽搐」的修复）
+    "none": BROADCAST_NONE, "no": BROADCAST_NONE, "off": BROADCAST_NONE,
+    "false": BROADCAST_NONE, "never": BROADCAST_NONE,
+    "settle": BROADCAST_NONE, "once": BROADCAST_NONE,
+    "end": BROADCAST_NONE, "on_settle": BROADCAST_NONE,
     "every_frame": BROADCAST_EVERY, "every": BROADCAST_EVERY,
     "always": BROADCAST_EVERY, "frame": BROADCAST_EVERY,
 }
 
 
 def _norm_broadcast(text):
-    """容错解析 broadcast 配置，认不出来就回到安全的默认值。"""
+    """容错解析 broadcast 配置，认不出来就回到安全的默认值（none）。"""
     return _BROADCAST_ALIASES.get((text or "").strip().lower(),
-                                  BROADCAST_SETTLE)
+                                  BROADCAST_NONE)
 
 
 def save_config(path, cfg):
@@ -508,7 +515,7 @@ def save_config(path, cfg):
         release_curve=cfg["release_curve"],
         strength=cfg["strength"],
         fps=cfg["fps"],
-        broadcast=cfg.get("broadcast", BROADCAST_SETTLE),
+        broadcast=cfg.get("broadcast", BROADCAST_NONE),
         hk_toggle=cfg["hk_toggle"],
         hk_reset=cfg["hk_reset"],
         hk_quit=cfg["hk_quit"],
@@ -565,7 +572,7 @@ def load_config(path):
                           or D["strength"]),
         "fps": gint("animation", "fps", D["fps"]),
         "broadcast": _norm_broadcast(
-            gstr("animation", "broadcast", BROADCAST_SETTLE)),
+            gstr("animation", "broadcast", BROADCAST_NONE)),
         "hk_toggle": gstr("hotkeys", "toggle", D["hk_toggle"]),
         "hk_reset": gstr("hotkeys", "reset", D["hk_reset"]),
         "hk_quit": gstr("hotkeys", "quit", D["hk_quit"]),
@@ -617,7 +624,7 @@ class PointerZoom:
         apply_size(self.original, notify=True)
         time.sleep(0.05)
         self.anim.current = float(self.original)
-        self.anim.broadcast = self.cfg.get("broadcast", BROADCAST_SETTLE)
+        self.anim.broadcast = self.cfg.get("broadcast", BROADCAST_NONE)
         self.anim.snap(self.cfg["idle_size"] if self.enabled else self.original)
         self.anim.start()
         atexit.register(self.restore)

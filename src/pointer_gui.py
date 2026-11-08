@@ -46,7 +46,7 @@ import pointer_zoom as pz   # noqa: E402
 import pz_tray              # noqa: E402
 import pz_ui as ui           # noqa: E402
 
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 SUBTITLE = "按下鼠标时动画缩放系统光标"
 
 CARD_W = 528                 # 卡片初始宽度（窗口可拖宽，卡片会跟着拉伸）
@@ -542,7 +542,7 @@ class ZoomGui:
         c["close_to_tray"] = bool(self.var_tray.get())
         self.app.anim.fps = c["fps"]
         # broadcast 没有对应的界面控件，但要原样透传给动画线程
-        c["broadcast"] = c.get("broadcast", pz.BROADCAST_SETTLE)
+        c["broadcast"] = c.get("broadcast", pz.BROADCAST_NONE)
         self.app.anim.broadcast = c["broadcast"]
         self._schedule_save()
 

@@ -8,7 +8,7 @@
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![python](https://img.shields.io/badge/python-3.8%2B-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-159%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-161%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
 | 浅色主题 | 深色主题 |
@@ -85,7 +85,7 @@ press_curve = ease_in_quad
 release_curve = ease_out_quad
 curve_strength = 3.0      ; 回弹强度，只对 back / elastic 类曲线有效
 fps = 60                  ; 帧率。每一帧 = 系统重绘一次光标，闪/卡就降到 30
-broadcast = settle        ; 何时广播 WM_SETTINGCHANGE，见下方「为什么默认不逐帧广播」
+broadcast = none          ; 何时广播 WM_SETTINGCHANGE，见下方「为什么完全不广播」
 
 [hotkeys]
 toggle = ctrl+alt+p
@@ -102,9 +102,9 @@ quit = ctrl+alt+q
 | 按下去要「啪」一下 | 按下时长 90，按下曲线选 `ease_out_quart` |
 | 全程匀速、最朴素 | 两条曲线都选 `linear` |
 | 不想缩小只想变大 | 平时大小设 32，按下大小设 96（效果反过来） |
-| 动画期间指针闪 | 保持 `broadcast = settle`（默认）；仍有闪就把帧率降到 60 或 30 |
+| 动画期间指针闪 | 保持 `broadcast = none`（默认）；仍有闪就把帧率降到 60 或 30 |
 
-### 为什么默认不逐帧广播
+### 为什么完全不广播
 
 改指针尺寸走的是未公开的 `SystemParametersInfoW(0x2029)`。它有两个可选的
 `fWinIni` 标志：
@@ -116,11 +116,15 @@ quit = ctrl+alt+q
 系统光标设置，而动画只改内存、不写注册表，注册表里还是「原始大小」—— 于是它们把光标
 按旧值重设回去，下一帧再被改回来。60fps 就是每秒 60 次这种拉扯，肉眼看到的就是一闪一闪。
 
-所以现在动画帧一律用 `flags = 0`，只在动画落定那一帧广播一次：
+**v1.1.2 起连「落定帧广播」也去掉了，现在默认完全不广播。** 因为它正是
+「偶尔抽搐一下」的来源：注册表里永远是原始大小，动画落定时（比如按住鼠标、
+光标已经缩到 25px）广播一次，收到广播的程序按注册表把光标拉回 48px。
+空闲时落定值恰好等于注册表值看不出来，按住时才看得见 —— 所以是「偶尔」。
+而广播到注册表值（恢复原始大小之后）又毫无意义，因为系统状态本来就是那样。
 
 ```ini
-broadcast = settle       ; 默认：落定时广播一次
-broadcast = every_frame  ; 退路：恢复旧行为（逐帧广播）
+broadcast = none         ; 默认：从不广播（旧配置里的 settle 自动等同于此）
+broadcast = every_frame  ; 退路：逐帧广播，仅作诊断用
 ```
 
 实测带不带广播，`SystemParametersInfoW` 的耗时几乎一样（0.68ms vs 0.70ms），说明
@@ -220,7 +224,7 @@ pointer-zoom/
 │  ├─ pz_ui.py               界面外观层：色板 + 圆角卡片 + 自绘控件
 │  ├─ pz_tray.py             通知栏图标（Shell_NotifyIconW，纯标准库）
 │  └─ pointer_zoom.py        主程序（钩子 / 动画 / 配置）
-├─ tests/                    测试套件（159 项）
+├─ tests/                    测试套件（161 项）
 ├─ tools/
 │  ├─ verify_spi.py          验证系统 API 是否可用
 │  ├─ screenshot.py          界面截图工具
@@ -240,8 +244,9 @@ pointer-zoom/
 ```bash
 python tests/test_logic.py     # 纯逻辑，不碰钩子不改指针（48 项）
 python tests/test_e2e.py       # 端到端：合成点击走全链路（14 项）
-python tests/test_gui.py       # 界面冒烟测试（17 项，需要 tkinter）
-python tests/test_broadcast.py # 闪烁修复回归：广播时机与去重（33 项，不碰真实光标）
+python tests/test_gui.py       # 界面冒烟测试（45 项，需要 tkinter）
+python tests/test_tray.py      # 托盘纯逻辑（19 项，不碰真实通知栏）
+python tests/test_broadcast.py # 闪烁/抽搐修复回归：广播时机与去重（35 项，不碰真实光标）
 python tests/test_hook.py      # 鼠标钩子诊断
 python tools/verify_spi.py     # 复验未公开 SPI 是否可用
 ```

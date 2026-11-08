@@ -8,7 +8,7 @@ English · [中文](README.md)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![python](https://img.shields.io/badge/python-3.8%2B-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-159%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-161%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
 | Light theme | Dark theme |
@@ -86,7 +86,7 @@ press_curve = ease_in_quad
 release_curve = ease_out_quad
 curve_strength = 3.0      ; overshoot amount, only used by back/elastic curves
 fps = 60                  ; every frame = one system cursor redraw; drop to 30 if it flickers
-broadcast = settle        ; when to broadcast WM_SETTINGCHANGE, see "Why not every frame"
+broadcast = none          ; when to broadcast WM_SETTINGCHANGE, see "Why no broadcast at all"
 
 [hotkeys]
 toggle = ctrl+alt+p
@@ -103,9 +103,9 @@ quit = ctrl+alt+q
 | Snappier press | `press_duration_ms = 90`, `press_curve = ease_out_quart` |
 | Perfectly linear | set both curves to `linear` |
 | Grow instead of shrink | `idle_size = 32`, `click_size = 96` |
-| Cursor flickers during the animation | keep `broadcast = settle` (default); if it still flickers, lower `fps` to 60 or 30 |
+| Cursor flickers during the animation | keep `broadcast = none` (default); if it still flickers, lower `fps` to 60 or 30 |
 
-### Why not broadcast every frame
+### Why no broadcast at all
 
 Resizing the cursor goes through the undocumented `SystemParametersInfoW(0x2029)`.
 It takes two optional `fWinIni` flags:
@@ -120,12 +120,19 @@ registry — so the registry still holds the *original* size, those apps snap th
 cursor back to it, and the next frame overrides them again. At 60 fps that tug of
 war happens 60 times a second, which is what you see as flickering.
 
-So animation frames now always use `flags = 0`, and the broadcast happens once,
-when the size settles:
+So animation frames now always use `flags = 0`, and — **since v1.1.2 — the
+settle broadcast is gone too; the default is no broadcast at all.** That final
+broadcast was the source of the occasional "twitch": the registry always holds
+the *original* size, so when the animation settles while the button is held
+(cursor shrunk to, say, 25px) the broadcast makes reactive apps snap the cursor
+back to 48px. At rest the settled value happens to equal the registry value, so
+you don't see it — which is exactly why it looked occasional. And broadcasting
+after restoring the original size is pointless anyway, since the system is
+already in that state.
 
 ```ini
-broadcast = settle       ; default: one broadcast when the animation settles
-broadcast = every_frame  ; escape hatch: restore the old per-frame behaviour
+broadcast = none         ; default: never broadcast (legacy "settle" behaves the same)
+broadcast = every_frame  ; escape hatch: per-frame broadcast, for diagnosis only
 ```
 
 Measured cost of `SystemParametersInfoW` is essentially identical with and without
@@ -200,7 +207,7 @@ pointer-zoom/
 │  ├─ pz_ui.py               UI skin layer: palette + rounded cards + drawn widgets
 │  ├─ pz_tray.py             notification-area icon (Shell_NotifyIconW, stdlib only)
 │  └─ pointer_zoom.py        core (hook / animation / config)
-├─ tests/                    test suite (159 checks)
+├─ tests/                    test suite (161 checks)
 ├─ tools/
 │  ├─ verify_spi.py          verify the undocumented SPI works
 │  ├─ screenshot.py          GUI screenshot helper
@@ -220,8 +227,9 @@ pointer-zoom/
 ```bash
 python tests/test_logic.py     # pure logic, no hook, no cursor changes (48 checks)
 python tests/test_e2e.py       # end-to-end, synthetic clicks (14 checks)
-python tests/test_gui.py       # GUI smoke test (17 checks, needs tkinter)
-python tests/test_broadcast.py # flicker-fix regression: broadcast timing (33 checks, no real cursor)
+python tests/test_gui.py       # GUI smoke test (45 checks, needs tkinter)
+python tests/test_tray.py      # tray pure logic (19 checks, no real tray)
+python tests/test_broadcast.py # flicker/twitch regression: broadcast timing (35 checks, no real cursor)
 python tests/test_hook.py      # mouse hook diagnostics
 python tools/verify_spi.py     # re-verify the undocumented SPI
 ```
