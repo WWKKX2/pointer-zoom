@@ -126,6 +126,42 @@ check("ctrl+alt+p 修饰键含 NOREPEAT", r[0] & pz.MOD_NOREPEAT and r[0] & pz.M
 
 print()
 print("=" * 60)
+print("7. 新增流行曲线（sine / smootherstep / cubic-bezier）")
+print("=" * 60)
+import math
+
+ss = pz.CURVES["smootherstep"]
+check("smootherstep(0.5) = 0.5", abs(ss(0.5) - 0.5) < 1e-9, ss(0.5))
+check("smootherstep 两端极缓", ss(0.1) < 0.05 and ss(0.9) > 0.95,
+      f"f(0.1)={ss(0.1):.4f} f(0.9)={ss(0.9):.4f}")
+
+check("ease_out_quint(0.5) = 0.96875",
+      abs(pz.CURVES["ease_out_quint"](0.5) - 0.96875) < 1e-9)
+check("ease_out_sine(0.5) = √2/2",
+      abs(pz.CURVES["ease_out_sine"](0.5) - math.sin(math.pi / 4)) < 1e-9)
+check("ease_in_out_sine(0.5) = 0.5",
+      abs(pz.CURVES["ease_in_out_sine"](0.5) - 0.5) < 1e-9)
+
+# cubic-bezier 求解器：css_ease 的中点值有公开参考值可对照
+check("css_ease(0.5) ≈ 0.8024（浏览器参考值）",
+      abs(pz.CURVES["css_ease"](0.5) - 0.8024) < 1e-3,
+      pz.CURVES["css_ease"](0.5))
+for name in ("css_ease", "material_emphasized", "material_decelerate"):
+    ys = [pz.CURVES[name](i / 40.0) for i in range(41)]
+    mono = all(b >= a - 1e-9 for a, b in zip(ys, ys[1:]))
+    check(f"{name} 全程单调不减且不越界",
+          mono and min(ys) >= -1e-9 and max(ys) <= 1.0 + 1e-9,
+          f"min={min(ys):.4f} max={max(ys):.4f}")
+check("material_decelerate 起步快（f(0.25)>0.6）",
+      pz.CURVES["material_decelerate"](0.25) > 0.6,
+      pz.CURVES["material_decelerate"](0.25))
+check("material_emphasized 中段快（f(0.5)>0.75）",
+      pz.CURVES["material_emphasized"](0.5) > 0.75,
+      pz.CURVES["material_emphasized"](0.5))
+check("共 24 条曲线", len(pz.CURVES) == 24, len(pz.CURVES))
+
+print()
+print("=" * 60)
 print(f"通过 {len(PASS)} 项，失败 {len(FAIL)} 项")
 if FAIL:
     for name in FAIL:

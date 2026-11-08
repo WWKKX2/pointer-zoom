@@ -116,7 +116,7 @@ def main():
         gui._on_curve_change()
         check("回弹强度 -> 2.4", abs(gui.cfg["strength"] - 2.4) < 1e-6)
 
-        print("\n2) 17 条曲线全部画一遍")
+        print("\n2) %d 条曲线全部画一遍" % len(pg.CURVES))
         bad = []
         for name in pg.CURVES:
             gui.var_press_curve.set(name)
@@ -125,7 +125,8 @@ def main():
             root.update()
             if len(gui.canvas.find_all()) < 5:
                 bad.append(name)
-        check("全部曲线预览绘制无异常", not bad, f"异常: {bad}" if bad else "17 条")
+        check("全部曲线预览绘制无异常", not bad,
+              f"异常: {bad}" if bad else "%d 条" % len(pg.CURVES))
 
         print("\n3) 预览动画跑一遍")
         gui.var_press_curve.set("ease_out_cubic")

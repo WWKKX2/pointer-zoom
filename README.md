@@ -8,7 +8,7 @@
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![python](https://img.shields.io/badge/python-3.8%2B-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-161%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-180%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
 | 浅色主题 | 深色主题 |
@@ -24,7 +24,7 @@
 ## 特性
 
 - **按下缩小、松开恢复**，两个方向各自独立配置时长与缓动曲线
-- **17 条内置缓动曲线**，含 `back` / `elastic` / `bounce` 等过冲曲线
+- **24 条内置缓动曲线**，含 `back` / `elastic` / `bounce` 等过冲曲线、Material Design 3 曲线与 sine / smootherstep
 - **现代化图形界面**：圆角卡片排版 + 自绘滑块/开关/分段选择器，日间 / 夜间双主题
   一键切换；拖滑块即时生效，曲线预览画出**真实尺寸轨迹**
 - **后台运行**：关闭窗口不退出，缩到通知栏；左键点托盘图标显示/隐藏窗口，右键可退出
@@ -100,6 +100,7 @@ quit = ctrl+alt+q
 | 更弹、更活泼 | 松开曲线选 `ease_out_elastic`，回弹强度拉到 2.5 |
 | 更克制、不抢眼 | 松开曲线选 `ease_out_quad`，松开时长降到 160 |
 | 按下去要「啪」一下 | 按下时长 90，按下曲线选 `ease_out_quart` |
+| 现代 App 的手感 | 按下 `material_decelerate`，松开 `material_emphasized` |
 | 全程匀速、最朴素 | 两条曲线都选 `linear` |
 | 不想缩小只想变大 | 平时大小设 32，按下大小设 96（效果反过来） |
 | 动画期间指针闪 | 保持 `broadcast = none`（默认）；仍有闪就把帧率降到 60 或 30 |
@@ -187,7 +188,7 @@ SystemParametersInfoW(0x2029 /* SPI_SETCURSORBASESIZE */, 0,
 ## 命令行
 
 ```bash
-python src/pointer_zoom.py --curves      # 列出全部 17 条曲线
+python src/pointer_zoom.py --curves      # 列出全部 24 条曲线
 python src/pointer_zoom.py --reset       # 恢复原始大小后退出
 python src/pointer_zoom.py --verbose     # 后台运行并打印每次按下/松开
 python tests/test_anim.py                # 跑一遍动画并打印尺寸时间线
@@ -224,7 +225,7 @@ pointer-zoom/
 │  ├─ pz_ui.py               界面外观层：色板 + 圆角卡片 + 自绘控件
 │  ├─ pz_tray.py             通知栏图标（Shell_NotifyIconW，纯标准库）
 │  └─ pointer_zoom.py        主程序（钩子 / 动画 / 配置）
-├─ tests/                    测试套件（161 项）
+├─ tests/                    测试套件（180 项）
 ├─ tools/
 │  ├─ verify_spi.py          验证系统 API 是否可用
 │  ├─ screenshot.py          界面截图工具

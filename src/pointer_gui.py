@@ -68,6 +68,13 @@ HINT = {
     "ease_out_elastic": "橡皮筋抖动",
     "ease_out_bounce": "落地弹跳",
     "ease_in_out_cubic": "两头慢中间快",
+    "ease_out_quint": "减速最利落",
+    "ease_out_sine": "轻柔减速",
+    "ease_in_out_sine": "Apple 式两头柔",
+    "smootherstep": "最平滑无感",
+    "material_emphasized": "MD3 标准",
+    "material_decelerate": "MD3 减速",
+    "css_ease": "浏览器默认",
 }
 
 

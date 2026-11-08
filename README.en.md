@@ -8,7 +8,7 @@ English · [中文](README.md)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![python](https://img.shields.io/badge/python-3.8%2B-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-161%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-180%20passed-brightgreen)
 [![CI](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml/badge.svg)](https://github.com/WWKKX2/pointer-zoom/actions/workflows/tests.yml)
 
 | Light theme | Dark theme |
@@ -24,7 +24,7 @@ English · [中文](README.md)
 ## Features
 
 - **Shrink on press, restore on release** — independent duration and easing curve for each direction
-- **17 built-in easing curves**, including overshooting `back` / `elastic` / `bounce`
+- **24 built-in easing curves**, including overshooting `back` / `elastic` / `bounce`, Material Design 3 curves, sine and smootherstep
 - **Modern GUI** — rounded card layout with hand-drawn sliders, switches and segmented
   controls, light / dark themes switchable in one click; live sliders, and a curve
   preview that plots the *actual pixel-size trajectory*
@@ -101,6 +101,7 @@ quit = ctrl+alt+q
 | Bouncier | `release_curve = ease_out_elastic`, `curve_strength = 2.5` |
 | Subtler | `release_curve = ease_out_quad`, `release_duration_ms = 160` |
 | Snappier press | `press_duration_ms = 90`, `press_curve = ease_out_quart` |
+| Modern app feel | `press_curve = material_decelerate`, `release_curve = material_emphasized` |
 | Perfectly linear | set both curves to `linear` |
 | Grow instead of shrink | `idle_size = 32`, `click_size = 96` |
 | Cursor flickers during the animation | keep `broadcast = none` (default); if it still flickers, lower `fps` to 60 or 30 |
@@ -188,7 +189,7 @@ Cursor size is system-wide state, so a crash mid-animation would leave it oversi
 ## CLI
 
 ```bash
-python src/pointer_zoom.py --curves      # list all 17 curves
+python src/pointer_zoom.py --curves      # list all 24 curves
 python src/pointer_zoom.py --reset       # restore original size and exit
 python src/pointer_zoom.py --verbose     # headless, logging every press/release
 python tests/test_anim.py                # play the animation and print the size timeline
@@ -207,7 +208,7 @@ pointer-zoom/
 │  ├─ pz_ui.py               UI skin layer: palette + rounded cards + drawn widgets
 │  ├─ pz_tray.py             notification-area icon (Shell_NotifyIconW, stdlib only)
 │  └─ pointer_zoom.py        core (hook / animation / config)
-├─ tests/                    test suite (161 checks)
+├─ tests/                    test suite (180 checks)
 ├─ tools/
 │  ├─ verify_spi.py          verify the undocumented SPI works
 │  ├─ screenshot.py          GUI screenshot helper

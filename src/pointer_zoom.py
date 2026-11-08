@@ -23,6 +23,7 @@ import argparse
 import atexit
 import configparser
 import ctypes
+import math
 import os
 import signal
 import sys
@@ -208,7 +209,7 @@ def _c_ease_out_elastic(t):
     if t >= 1:
         return 1.0
     c4 = (2 * 3.141592653589793) / 3
-    return 2 ** (-10 * t) * __import__("math").sin((t * 10 - 0.75) * c4) + 1
+    return 2 ** (-10 * t) * math.sin((t * 10 - 0.75) * c4) + 1
 
 
 def _c_ease_out_bounce(t):
@@ -225,6 +226,84 @@ def _c_ease_out_bounce(t):
     return n1 * t * t + 0.984375
 
 
+def _c_ease_out_quint(t):
+    return 1.0 - (1.0 - t) ** 5
+
+
+def _c_ease_out_sine(t):
+    return math.sin(t * math.pi / 2.0)
+
+
+def _c_ease_in_out_sine(t):
+    return -(math.cos(math.pi * t) - 1.0) / 2.0
+
+
+def _c_smootherstep(t):
+    # Ken Perlin 的改进平滑插值：6t^5 - 15t^4 + 10t^3
+    # 两端速度、加速度都为 0，是「最不突兀」的过渡
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+
+def _cubic_bezier(x1, y1, x2, y2):
+    """CSS cubic-bezier(x1, y1, x2, y2) 曲线工厂。
+
+    现代 UI 曲线的通用写法：Material Design 3、浏览器默认 ease 都是它。
+    x1/x2 必须在 [0,1]（CSS 规范如此），y 可以越界（用于过冲）。
+    求值分两步：先在 x 上解出参数 u（牛顿迭代，不收敛退回二分），
+    再算 y(u)。x 对 u 严格单调递增，所以这套解法总是收敛。
+    """
+    cx = 3.0 * x1
+    bx = 3.0 * (x2 - x1) - cx
+    ax = 1.0 - cx - bx
+    cy = 3.0 * y1
+    by = 3.0 * (y2 - y1) - cy
+    ay = 1.0 - cy - by
+
+    def sample_x(u):
+        return ((ax * u + bx) * u + cx) * u
+
+    def sample_y(u):
+        return ((ay * u + by) * u + cy) * u
+
+    def sample_dx(u):
+        return (3.0 * ax * u + 2.0 * bx) * u + cx
+
+    def solve_u(x):
+        u = x                       # 初值：x(u) 大体上接近 u
+        for _ in range(8):
+            err = sample_x(u) - x
+            if abs(err) < 1e-6:
+                return u
+            d = sample_dx(u)
+            if abs(d) < 1e-6:
+                break
+            u -= err / d
+        lo, hi = 0.0, 1.0           # 牛顿不行就二分兜底
+        u = x
+        while hi - lo > 1e-6:
+            if sample_x(u) < x:
+                lo = u
+            else:
+                hi = u
+            u = (lo + hi) / 2.0
+        return u
+
+    def curve(t):
+        if t <= 0.0:
+            return 0.0
+        if t >= 1.0:
+            return 1.0
+        return sample_y(solve_u(t))
+
+    return curve
+
+
+# Material Design 3 的两条标志曲线 + 浏览器默认 ease
+_c_material_emphasized = _cubic_bezier(0.2, 0.0, 0.0, 1.0)
+_c_material_decelerate = _cubic_bezier(0.05, 0.7, 0.1, 1.0)
+_c_css_ease = _cubic_bezier(0.25, 0.1, 0.25, 1.0)
+
+
 CURVES = {
     "linear": _c_linear,
     "ease_in_quad": _c_ease_in_quad,
@@ -235,6 +314,13 @@ CURVES = {
     "ease_in_out_cubic": _c_ease_in_out_cubic,
     "ease_in_quart": _c_ease_in_quart,
     "ease_out_quart": _c_ease_out_quart,
+    "ease_out_quint": _c_ease_out_quint,
+    "ease_out_sine": _c_ease_out_sine,
+    "ease_in_out_sine": _c_ease_in_out_sine,
+    "smootherstep": _c_smootherstep,
+    "material_emphasized": _c_material_emphasized,
+    "material_decelerate": _c_material_decelerate,
+    "css_ease": _c_css_ease,
     "ease_in_expo": _c_ease_in_expo,
     "ease_out_expo": _c_ease_out_expo,
     "ease_in_out_expo": _c_ease_in_out_expo,
@@ -257,6 +343,13 @@ CURVE_NOTES = {
     "ease_in_out_back": "两端都带回弹",
     "ease_out_elastic": "橡皮筋式抖动，最活泼",
     "ease_out_bounce": "落地弹跳",
+    "ease_out_quint": "减速比 quart 更利落，CSS 流行",
+    "ease_out_sine": "轻柔减速，iOS 常见手感",
+    "ease_in_out_sine": "两头柔中间匀，Apple 式默认感",
+    "smootherstep": "Perlin 平滑，两端零速度，最不突兀",
+    "material_emphasized": "Material Design 3 标准曲线",
+    "material_decelerate": "Material 3 减速曲线，按下缩小很合适",
+    "css_ease": "浏览器默认的 ease，最眼熟",
 }
 
 

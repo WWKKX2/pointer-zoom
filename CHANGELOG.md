@@ -2,6 +2,39 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+
+- **缓动曲线 17 → 24 条**，补齐流行 UI 里常见的成员：
+
+  | 曲线 | 来源 |
+  |---|---|
+  | `ease_out_quint` | CSS / GSAP 五次方减速 |
+  | `ease_out_sine` / `ease_in_out_sine` | 经典 sine 家族，iOS 式手感 |
+  | `smootherstep` | Ken Perlin 改进平滑插值，两端零速度 |
+  | `material_emphasized` | Material Design 3 标准曲线 |
+  | `material_decelerate` | Material 3 减速曲线，按下缩小很合适 |
+  | `css_ease` | 浏览器默认 ease |
+
+- 内置 **cubic-bezier 求解器**（`_cubic_bezier`，牛顿迭代 + 二分兜底），
+  以后想加任何 CSS 曲线只需一行注册。
+- GUI 曲线下拉框与提示语自动跟进新曲线；调参配方表新增
+  「现代 App 的手感」（按下 `material_decelerate` / 松开 `material_emphasized`）。
+
+### 修复
+
+- cubic-bezier 求解器首版把 y 多项式的 u² 项系数写错
+  （`3(y2−y1)`，应为 `3y2−6y1`），过冲越界到 1.53；
+  改用闭包内已验证的系数求值后，`css_ease(0.5)` 与浏览器参考值 0.8024 精确吻合。
+
+### 测试
+
+- `test_logic` 48 → **67 项**：新曲线端点检查由参数化循环自动覆盖，
+  另补 smootherstep / sine 中点值、bezier 全程单调不越界、
+  `css_ease(0.5)` 对浏览器参考值、曲线总数断言。
+- 全套 67 + 14 + 45 + 35 + 19 = **180 项全过**。
+
 ## [1.1.2] - 2026-11-08
 
 修复「偶尔闪、抽搐」—— 这是 v1.0.1 闪烁修复的最后残渣。
