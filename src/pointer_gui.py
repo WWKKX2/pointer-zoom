@@ -37,6 +37,7 @@ import ctypes
 import os
 import queue
 import sys
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -89,6 +90,13 @@ class ZoomGui:
         self._hook_error_reported = False
         self._shutting_down = False
         self._hide_hinted = False     # 首次藏进托盘时弹一次气泡提示
+        # 窗口动效：淡入淡出 / 平滑滚动的 after 句柄（同一时刻只留一个）
+        self._fade_job = None
+        self._fade_token = 0
+        self._scroll_job = None
+        self._tick_job = None
+        self._open_job = None
+        self._bar_frac = 0.0          # 状态条当前显示的比例（平滑跟随真实值）
         # 托盘：线程只往队列丢字符串，主线程 _tick 里轮询处理
         self.tray = None
         self.tray_actions = queue.Queue()
@@ -104,8 +112,9 @@ class ZoomGui:
         if self.cfg.get("close_to_tray"):
             self._ensure_tray()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
-        root.after(60, self._tick)
+        self._tick_job = root.after(60, self._tick)
         self._center()
+        self._play_open_anim()
 
     # ------------------------------------------------------------ 小工具
 
@@ -151,6 +160,85 @@ class ZoomGui:
         root.geometry("+%d+%d" % (max(0, (sw - w) // 2),
                                   max(0, (sh - h) // 4)))
 
+    # ------------------------------------------------------------ 窗口动效
+
+    def _set_alpha(self, a):
+        """窗口整体透明度。Windows 支持 -alpha；某些环境不支持就静默跳过。"""
+        try:
+            self.root.attributes("-alpha", max(0.0, min(1.0, a)))
+        except Exception:
+            pass
+
+    def _fade_to(self, end, ms, on_done=None):
+        """把窗口淡到 end（0..1）。用 token 作废旧动画，随时可打断。"""
+        self._fade_token += 1
+        token = self._fade_token
+        if self._fade_job is not None:
+            try:
+                self.root.after_cancel(self._fade_job)
+            except Exception:
+                pass
+            self._fade_job = None
+        try:
+            start = float(self.root.attributes("-alpha"))
+        except Exception:
+            start = 1.0
+        if ms <= 0 or abs(end - start) < 0.01:
+            self._set_alpha(end)
+            if on_done:
+                try:
+                    on_done()
+                except Exception:
+                    pass
+            return
+        dur = ms / 1000.0
+        t0 = time.perf_counter()
+
+        def step():
+            self._fade_job = None
+            if token != self._fade_token:
+                return                  # 被更新的动画接管了
+            try:
+                if not self.root.winfo_exists():
+                    return
+            except tk.TclError:
+                return                  # 窗口已经销毁（_shutdown 抢先了）
+            t = (time.perf_counter() - t0) / dur
+            if t >= 1.0:
+                self._set_alpha(end)
+                if on_done:
+                    try:
+                        on_done()
+                    except Exception:
+                        pass
+                return
+            self._set_alpha(start + (end - start) * (1 - (1 - t) ** 3))
+            try:
+                self._fade_job = self.root.after(12, step)
+            except tk.TclError:
+                pass
+
+        step()
+
+    def _play_open_anim(self):
+        """开场：从全透明淡入。比「啪」地一下出现柔和得多。"""
+        try:
+            self.root.attributes("-alpha", 0.0)
+        except Exception:
+            return                      # 不支持透明度就正常显示
+        self._open_job = self.root.after(30, lambda: self._fade_to(1.0, 240))
+
+    def _hide_to_tray(self):
+        """淡出后再藏进通知栏；藏好把 alpha 复原，下次显示才有得淡入。"""
+        def done():
+            try:
+                self.root.withdraw()
+            except tk.TclError:
+                pass
+            self._set_alpha(1.0)
+
+        self._fade_to(0.0, 110, done)
+
     def _card(self, pady=0):
         """建一张卡片，并把它的高度变化上报给滚动区。"""
         card = ui.Card(self.viewport, self.ui, width=CARD_W,
@@ -177,8 +265,62 @@ class ZoomGui:
     def _on_wheel(self, evt):
         # Windows 滚轮一档 delta=120；用固定档数而不是 delta/120，
         # 不然小 delta 的触摸板会除出 0 滚不动
-        self.scroll.yview_scroll(3 if evt.delta > 0 else -3, "units")
+        try:
+            first, last = self.scroll.yview()
+        except tk.TclError:
+            return "break"
+        span = last - first
+        if span >= 0.999:
+            return "break"                  # 内容没超出视口
+        step = max(0.04, span * 0.55)       # 一档滚半屏多一点，带缓动
+        self._scroll_to(first - step if evt.delta > 0 else first + step)
         return "break"
+
+    def _scroll_to(self, target):
+        """平滑滚到 yview 比例 target。和窗口淡入同一套：可打断、销毁自停。"""
+        try:
+            first, last = self.scroll.yview()
+        except tk.TclError:
+            return
+        span = last - first
+        target = max(0.0, min(max(0.0, 1.0 - span), target))
+        if self._scroll_job is not None:
+            try:
+                self.root.after_cancel(self._scroll_job)
+            except Exception:
+                pass
+            self._scroll_job = None
+        start = first
+        if abs(target - start) < 1e-4:
+            return
+        t0 = time.perf_counter()
+        dur = 0.15
+
+        def step():
+            self._scroll_job = None
+            try:
+                if not self.scroll.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+            t = (time.perf_counter() - t0) / dur
+            if t >= 1.0:
+                try:
+                    self.scroll.yview_moveto(target)
+                except tk.TclError:
+                    pass
+                return
+            v = start + (target - start) * (1 - (1 - t) ** 3)
+            try:
+                self.scroll.yview_moveto(v)
+            except tk.TclError:
+                return
+            try:
+                self._scroll_job = self.root.after(12, step)
+            except tk.TclError:
+                pass
+
+        step()
 
     def _build_scroller(self, parent):
         """中间的可滚动区：一个 Canvas 里装着 viewport Frame。
@@ -516,7 +658,7 @@ class ZoomGui:
                 except tk.TclError:
                     return          # 窗口刚被销毁
                 if visible:
-                    self.root.withdraw()
+                    self._hide_to_tray()
                 else:
                     self._show_window()
             elif act == "quit":
@@ -524,11 +666,13 @@ class ZoomGui:
 
     def _show_window(self):
         self.root.deiconify()
+        self._set_alpha(0.0)            # 从透明淡入，避免「闪」地蹦出来
         self.root.lift()
         try:
             self.root.focus_force()
         except Exception:
             pass
+        self._fade_to(1.0, 170)
 
     # ------------------------------------------------------------ 事件处理
 
@@ -738,7 +882,12 @@ class ZoomGui:
             return
         p = self.ui.pal
         cur = self.app.anim.current
-        frac = max(0.0, min(1.0, cur / pz.SIZE_MAX))
+        target = max(0.0, min(1.0, cur / pz.SIZE_MAX))
+        # _tick 是 60ms 一次，直接画会一格格跳；指数逼近让中间帧也连起来
+        self._bar_frac += (target - self._bar_frac) * 0.30
+        if abs(target - self._bar_frac) < 0.0015:
+            self._bar_frac = target
+        frac = self._bar_frac
         self.bar.delete("all")
         self.bar.create_rectangle(0, 0, w * frac, 8,
                                   fill=p["press"] if self.app.pressed
@@ -773,7 +922,7 @@ class ZoomGui:
                                    % self.hook_thread.error)
             self.lbl_footer.config(foreground=self.ui.pal["red"])
 
-        self.root.after(60, self._tick)
+        self._tick_job = self.root.after(60, self._tick)
 
     # ------------------------------------------------------------ 退出
 
@@ -790,7 +939,7 @@ class ZoomGui:
             if self.tray is None:
                 self._ensure_tray()
             if self.tray is not None:
-                self.root.withdraw()
+                self._hide_to_tray()
                 if not self._hide_hinted:
                     self._hide_hinted = True
                     try:
@@ -829,6 +978,17 @@ class ZoomGui:
                 self.hook_thread.stop()
             self.app.restore()
         finally:
+            # 先把挂起的 after 全停掉：destroy 之后它们再触发，Tk 会往
+            # stderr 打 "invalid command name"，白白吓人一跳
+            self.ui.stop_anims()
+            for job in (self._tick_job, self._open_job,
+                        self._fade_job, self._scroll_job):
+                if job is None:
+                    continue
+                try:
+                    self.root.after_cancel(job)
+                except Exception:
+                    pass
             self.root.destroy()
 
 

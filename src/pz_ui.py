@@ -29,6 +29,7 @@ ttk 的 LabelFrame / Scale / Checkbutton 是系统原生外观，配色和间距
 """
 
 import math
+import time
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -99,6 +100,107 @@ def round_rect(cv, x0, y0, x1, y1, r, fill=None, outline=None, width=1):
         items.append(cv.create_line(flat, fill=outline, width=width,
                                     capstyle=tk.ROUND, joinstyle=tk.ROUND))
     return items[0] if items else None
+
+
+# --------------------------------------------------------------------- 动效
+
+def ease_out_cubic(t):
+    """标准减速：起步快、收尾柔。界面上的补间统一用它。"""
+    return 1.0 - (1.0 - t) ** 3
+
+
+class Ticker:
+    """after() 驱动的单值补间 —— 整个界面动效的最小内核。
+
+    · `to(target)` 永远从**当前值**起步，所以动画可以随时被打断重来，
+      快速连点不会跳变（和指针动画同一个思路）。
+    · 每帧回调 `on_frame(value)`，控件在里面重画自己。
+    · 控件销毁后自动停：destroy 之后连 `winfo_exists()` 都会抛 TclError，
+      这里一律兜住，绝不让异常从 after 回调里逃出来。
+    """
+
+    FRAME_MS = 12               # ~80fps，tkinter 完全扛得住
+
+    def __init__(self, widget, on_frame, ms=160, ease=ease_out_cubic):
+        self.widget = widget
+        self.on_frame = on_frame
+        self.ms = ms
+        self.ease = ease
+        self.value = 0.0
+        self.target = 0.0
+        self._job = None
+        self._t0 = 0.0
+        self._from = 0.0
+        self._dur = 0.001
+
+    # ---- 内部 ----
+    def _alive(self):
+        try:
+            return bool(self.widget.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def _cancel(self):
+        if self._job is not None:
+            try:
+                self.widget.after_cancel(self._job)
+            except (tk.TclError, ValueError):
+                pass
+            self._job = None
+
+    def _frame(self, v, on_done=None):
+        try:
+            self.on_frame(v)
+        except tk.TclError:
+            return                      # 控件已销毁，静默收工
+        except Exception:
+            pass
+        if on_done is not None:
+            try:
+                on_done()
+            except Exception:
+                pass
+
+    def _step(self, on_done=None):
+        self._job = None
+        if not self._alive():
+            return
+        t = (time.perf_counter() - self._t0) / self._dur
+        if t >= 1.0:
+            self.value = self.target
+            self._frame(self.value, on_done)
+            return
+        self.value = self._from + (self.target - self._from) * self.ease(t)
+        self._frame(self.value)
+        try:
+            self._job = self.widget.after(self.FRAME_MS,
+                                          lambda: self._step(on_done))
+        except tk.TclError:
+            self._job = None
+
+    # ---- 对外 ----
+    def jump(self, v):
+        """不带动画直接落到 v（初始化和重绘时用）。"""
+        self._cancel()
+        self.value = self.target = float(v)
+
+    def stop(self):
+        self._cancel()
+        self.target = self.value
+
+    def to(self, target, ms=None, on_done=None):
+        """平滑过渡到 target。on_done 在到达后调一次。"""
+        target = float(target)
+        self._cancel()
+        if abs(target - self.value) < 1e-3:
+            self.value = target
+            self._frame(target, on_done)
+            return
+        self.target = target
+        self._from = self.value
+        self._t0 = time.perf_counter()
+        self._dur = max(0.001, (self.ms if ms is None else ms) / 1000.0)
+        self._step(on_done)
 
 
 # --------------------------------------------------------------------- 色板
@@ -224,6 +326,17 @@ class UI:
     def extra(self, obj):
         self._extras.append(obj)
         return obj
+
+    # ---- 停掉全部控件动画（退出前调，免得销毁后还有 after 回调） ----
+    def stop_anims(self):
+        for obj in self._extras:
+            fn = getattr(obj, "stop_anims", None)
+            if fn is None:
+                continue
+            try:
+                fn()
+            except Exception:
+                pass
 
     # ---- 换肤 ----
     def set_theme(self, name):
@@ -392,6 +505,9 @@ class Slider(tk.Canvas):
         kw.setdefault("bg", ui.c(bg))
         super().__init__(master, **kw)
         ui.extra(self)
+        # 0=常态 0.5=悬停 1=拖动：拇指半径跟着它平滑长大
+        self._glow = Ticker(self, lambda _v: self.redraw(), ms=120)
+        self._glow.jump(0.0)
         var.trace_add("write", lambda *_a: self.redraw())
         self.bind("<Configure>", lambda _e: self.redraw())
         self.bind("<Enter>", lambda _e: self._set_hover(True))
@@ -451,10 +567,11 @@ class Slider(tk.Canvas):
     def _set_hover(self, on):
         if on != self._hover:
             self._hover = on
-            self.redraw()
+            self._glow.to(0.5 if on else 0.0)
 
     def _press(self, evt):
         self._active = True
+        self._glow.to(1.0)
         self._set(self._value_at(evt.x))
         self.redraw()
         return None
@@ -467,6 +584,7 @@ class Slider(tk.Canvas):
     def _release(self, _evt):
         if self._active:
             self._active = False
+            self._glow.to(0.5 if self._hover else 0.0)
             self.redraw()
         return None
 
@@ -485,7 +603,7 @@ class Slider(tk.Canvas):
         x0, x1 = self._span()
         thumb = x0 + (x1 - x0) * self._t()
         track_h = 6
-        r_thumb = 8 if self._active else (7 if self._hover else 6)
+        r_thumb = 6.0 + 2.0 * max(0.0, min(1.0, self._glow.value))
 
         round_rect(self, 5, cy - track_h / 2, w - 5, cy + track_h / 2,
                    track_h / 2, fill=p["track"])
@@ -496,6 +614,9 @@ class Slider(tk.Canvas):
         self.create_oval(thumb - r_thumb, cy - r_thumb,
                          thumb + r_thumb, cy + r_thumb,
                          fill=p["thumb"], outline=p["thumb_edge"], width=2)
+
+    def stop_anims(self):
+        self._glow.stop()
 
     def retheme(self):
         self.configure(bg=self.ui.c(self._bg_key))
@@ -522,11 +643,17 @@ class Switch(tk.Canvas):
         kw.setdefault("bg", ui.c(bg))
         super().__init__(master, **kw)
         ui.extra(self)
-        var.trace_add("write", lambda *_a: self.redraw())
+        # 0=关 1=开：同一个补间值同时驱动轨道颜色和钮的位置
+        self._pos = Ticker(self, lambda _v: self.redraw(), ms=170)
+        self._pos.jump(1.0 if var.get() else 0.0)
+        var.trace_add("write", lambda *_a: self._animate())
         self.bind("<Enter>", lambda _e: self._hover_on(True))
         self.bind("<Leave>", lambda _e: self._hover_on(False))
         self.bind("<ButtonPress-1>", self._click)
         self.redraw()
+
+    def _animate(self):
+        self._pos.to(1.0 if self.var.get() else 0.0)
 
     def _hover_on(self, on):
         self._hover = on
@@ -548,23 +675,23 @@ class Switch(tk.Canvas):
             w = self.W
         if h <= 1:
             h = self.H
-        on = bool(self.var.get())
+        pos = max(0.0, min(1.0, self._pos.value))
         cy = h / 2.0
         pad = 3
         right = w - pad
         knob_r = 9 if self._hover else 8
-        track = p["accent"] if on else p["off_track"]
+        track = mix(p["off_track"], p["accent"], pos)
 
         round_rect(self, pad, cy - 10, right, cy + 10, 10, fill=track)
 
-        if on:
-            kx = right - 11
-        else:
-            kx = pad + 11
+        kx = pad + 11 + (right - pad - 22) * pos
         self.create_oval(kx - knob_r, cy - knob_r, kx + knob_r, cy + knob_r,
                          fill=p["thumb"],
                          outline=tint(track, p["thumb"], 0.72),
                          width=2)
+
+    def stop_anims(self):
+        self._pos.stop()
 
     def retheme(self):
         self.configure(bg=self.ui.c(self._bg_key))
@@ -594,12 +721,25 @@ class Segmented(tk.Canvas):
         kw.setdefault("bg", ui.c(bg))
         super().__init__(master, **kw)
         ui.extra(self)
-        var.trace_add("write", lambda *_a: self.redraw())
+        # 高亮块的位置（单位=段索引，可以是小数 = 正在滑动）
+        self._pos = Ticker(self, lambda _v: self.redraw(), ms=190)
+        self._pos.jump(float(self._sel_index()))
+        var.trace_add("write", lambda *_a: self._animate())
         self.bind("<Configure>", lambda _e: self.redraw())
         self.bind("<Leave>", lambda _e: self._set_hover(-1))
         self.bind("<Motion>", self._motion)
         self.bind("<ButtonPress-1>", self._click)
         self.redraw()
+
+    def _sel_index(self):
+        sel = self.var.get()
+        for i, (val, _txt) in enumerate(self.items):
+            if val == sel:
+                return i
+        return 0
+
+    def _animate(self):
+        self._pos.to(float(self._sel_index()))
 
     def _auto_width(self):
         try:
@@ -636,9 +776,11 @@ class Segmented(tk.Canvas):
         p = self.ui.pal
         self.delete("all")
         w = self.winfo_width()
-        h = self.winfo_height() or self.H
+        h = self.winfo_height()
         if w <= 1:
             w = 300
+        if h <= 1:
+            h = self.H
         self._box = []
         pad = 3
         n = len(self.items)
@@ -647,19 +789,24 @@ class Segmented(tk.Canvas):
         round_rect(self, 0, 0, w - 1, h - 1, self.RADIUS, fill=p["card_alt"])
         inner_w = w - 2 * pad
         seg_w = inner_w / n
-        sel = self.var.get()
+        # 高亮块先画，文字压在它上面；位置取自补间值，所以是滑过去的
+        pos = max(0.0, min(float(n - 1), self._pos.value))
+        px0 = pad + pos * seg_w
+        round_rect(self, px0 + 1, pad, px0 + seg_w - 1, h - pad,
+                   self.RADIUS - 3, fill=p["accent"])
         for i, (val, txt) in enumerate(self.items):
             x0 = pad + i * seg_w
             x1 = pad + (i + 1) * seg_w
             self._box.append((x0, x1))
-            if val == sel:
-                round_rect(self, x0 + 1, pad, x1 - 1, h - pad,
-                           self.RADIUS - 3, fill=p["accent"])
-                color = p["on_accent"]
-            else:
-                color = p["text"] if self._hover == i else p["text2"]
-            self.create_text((x0 + x1) / 2, h / 2, text=txt, fill=color,
+            # 被高亮块覆盖得越多，文字越接近 on_accent（滑动途中是渐变）
+            a = max(0.0, 1.0 - abs(i - pos))
+            base = p["text"] if self._hover == i else p["text2"]
+            self.create_text((x0 + x1) / 2, h / 2, text=txt,
+                             fill=mix(base, p["on_accent"], a),
                              font=self.ui.f_label)
+
+    def stop_anims(self):
+        self._pos.stop()
 
     def retheme(self):
         self.configure(bg=self.ui.c("card"))
@@ -696,6 +843,11 @@ class Button(tk.Canvas):
         kw.setdefault("bg", ui.c(bg))
         super().__init__(master, **kw)
         ui.extra(self)
+        # 悬停底色渐变 + 按下内缩，各一个补间
+        self._hl = Ticker(self, lambda _v: self.redraw(), ms=130)
+        self._pr = Ticker(self, lambda _v: self.redraw(), ms=90)
+        self._hl.jump(0.0)
+        self._pr.jump(0.0)
         self.bind("<Enter>", lambda _e: self._set_hover(True))
         self.bind("<Leave>", self._leave)
         self.bind("<ButtonPress-1>", self._press)
@@ -713,20 +865,22 @@ class Button(tk.Canvas):
     def _set_hover(self, on):
         if on != self._hover:
             self._hover = on
-            self.redraw()
+            self._hl.to(1.0 if on else 0.0)
 
     def _leave(self, _evt):
         self._set_hover(False)
-        self._down = False
+        if self._down:
+            self._down = False
+            self._pr.to(0.0)
 
     def _press(self, _evt):
         self._down = True
-        self.redraw()
+        self._pr.to(1.0)
 
     def _release(self, evt):
         if self._down:
             self._down = False
-            self.redraw()
+            self._pr.to(0.0)
             if 0 <= evt.x <= (self._cw or 0) and self.command:
                 self.command()
         return None
@@ -740,34 +894,44 @@ class Button(tk.Canvas):
         if w <= 1:
             w = 90
         parent_bg = self.ui.c(self._bg_key)
+        hl = max(0.0, min(1.0, self._hl.value))
+        pr = max(0.0, min(1.0, self._pr.value))
 
         if self.kind == "primary":
             base = p["accent"]
-            fill = mix(base, p["on_accent"], 0.18 if self._hover else 0.0)
+            fill = mix(base, p["on_accent"], 0.18 * hl)
             fg = p["on_accent"]
         elif self.kind == "secondary":
             base = p["card_alt"]
             # 注意这里要传色值，不能传色板键名 —— mix() 只认 "#rrggbb"
-            fill = mix(base, p["accent"], 0.10 if self._hover else 0.0)
+            fill = mix(base, p["accent"], 0.10 * hl)
             fg = p["text"]
         else:                                   # ghost
             base = parent_bg
-            fill = mix(base, p["text"], 0.05 if self._hover else 0.0)
+            fill = mix(base, p["text"], 0.05 * hl)
             fg = p["text2"]
 
-        if self._down and self.kind == "primary":
-            fill = mix(fill, "#000000", 0.10)
+        if self.kind == "primary":
+            fill = mix(fill, "#000000", 0.10 * pr)
 
+        # 按下时整体内缩一点点，视觉上像被按进去
+        inset = 1.4 * pr
+        x0, y0 = inset, inset
+        x1, y1 = w - 1 - inset, h - 1 - inset
         if self.kind == "ghost":
-            round_rect(self, 0, 0, w - 1, h - 1, self.RADIUS, fill=fill)
+            round_rect(self, x0, y0, x1, y1, self.RADIUS, fill=fill)
         elif self.kind == "secondary":
-            round_rect(self, 0, 0, w - 1, h - 1, self.RADIUS, fill=fill,
+            round_rect(self, x0, y0, x1, y1, self.RADIUS, fill=fill,
                        outline=p["border"])
         else:
-            round_rect(self, 0, 0, w - 1, h - 1, self.RADIUS, fill=fill)
+            round_rect(self, x0, y0, x1, y1, self.RADIUS, fill=fill)
 
         self.create_text(w / 2, h / 2, text=self.text, fill=fg,
                          font=self.ui.f_label, state="disabled")
+
+    def stop_anims(self):
+        self._hl.stop()
+        self._pr.stop()
 
     def retheme(self):
         self.configure(bg=self.ui.c(self._bg_key))
@@ -793,9 +957,22 @@ class StatusPill(tk.Canvas):
         kw.setdefault("bg", ui.c(bg))
         super().__init__(master, **kw)
         ui.extra(self)
-        textvar.trace_add("write", lambda *_a: self.redraw())
+        self._last_text = textvar.get()
+        # 文字真的变了才闪一下（_tick 每 60ms 会 set 同一个值，必须去重）
+        self._flash = Ticker(self, lambda _v: self.redraw(), ms=120)
+        self._flash.jump(0.0)
+        textvar.trace_add("write", lambda *_a: self._pulse())
         self.bind("<Configure>", lambda _e: self.redraw())
         self.redraw()
+
+    def _pulse(self):
+        """文字变化时闪一下：快速亮起、慢慢退掉。"""
+        txt = self.textvar.get()
+        if txt == self._last_text:
+            return
+        self._last_text = txt
+        self._flash.jump(0.0)
+        self._flash.to(1.0, 120, on_done=lambda: self._flash.to(0.0, 340))
 
     def redraw(self):
         p = self.ui.pal
@@ -809,11 +986,17 @@ class StatusPill(tk.Canvas):
         base = p["green"] if self.kind == "green" else p["red"]
         soft = p["green_soft"] if self.kind == "green" else mix(p["red"],
                                                                p["card"], 0.82)
-        round_rect(self, 0, 0, w - 1, h - 1, h / 2, fill=soft)
+        f = max(0.0, min(1.0, self._flash.value))
+        round_rect(self, 0, 0, w - 1, h - 1, h / 2,
+                   fill=mix(soft, base, 0.20 * f))
         cy = h / 2.0
-        self.create_oval(11, cy - 4, 19, cy + 4, fill=base, outline="")
+        r = 4 + 1.4 * f
+        self.create_oval(15 - r, cy - r, 15 + r, cy + r, fill=base, outline="")
         self.create_text(24, cy, text=txt, anchor="w", fill=base,
                          font=self.ui.f_small)
+
+    def stop_anims(self):
+        self._flash.stop()
 
     def retheme(self):
         self.configure(bg=self.ui.c(self._bg_key))

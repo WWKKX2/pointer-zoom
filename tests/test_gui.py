@@ -257,7 +257,78 @@ def main():
 
         check("全程无回调异常", not cb_errors, f"{cb_errors[:3]}")
 
-        print("\n9) 后台运行（托盘）")
+        print("\n9) 界面动效（补间内核与控件动画）")
+        # 补间内核：能到目标、on_done 只调一次、确实跑了多帧
+        tkf = tk.Frame(root)
+        hits = []
+        tick = ui.Ticker(tkf, lambda v: hits.append(v), ms=60)
+        tick.jump(0.0)
+        tick.to(1.0, 60, on_done=lambda: hits.append("done"))
+        pump(root, 0.35)
+        check("补间到达目标值", abs(tick.value - 1.0) < 1e-6, tick.value)
+        check("on_done 恰好调一次", hits.count("done") == 1, hits[-3:])
+        check("补间确实跑了多帧",
+              len([h for h in hits if h != "done"]) >= 3, len(hits))
+
+        # 开关：白钮滑过去（结束时必须精确落在目标）
+        var_on = tk.BooleanVar(value=False)
+        sw = ui.Switch(root, gui.ui, var_on)
+        sw.place(x=0, y=0)
+        pump(root, 0.2)
+        check("开关初始位置在关", abs(sw._pos.value) < 1e-6, sw._pos.value)
+        var_on.set(True)
+        pump(root, 0.4)
+        check("开关打开后滑到 1",
+              abs(sw._pos.value - 1.0) < 1e-6, sw._pos.value)
+        var_on.set(False)
+        pump(root, 0.4)
+        check("开关关闭后滑回 0", abs(sw._pos.value) < 1e-6, sw._pos.value)
+        sw.destroy()
+
+        # 分段选择器：高亮块滑到新段
+        var_seg = tk.StringVar(value="a")
+        seg = ui.Segmented(root, gui.ui, [("a", "甲"), ("b", "乙")], var_seg)
+        seg.place(x=0, y=40)
+        pump(root, 0.2)
+        check("分段初始位置在第 0 段", abs(seg._pos.value) < 1e-6)
+        var_seg.set("b")
+        pump(root, 0.45)
+        check("分段高亮滑到第 1 段",
+              abs(seg._pos.value - 1.0) < 1e-6, seg._pos.value)
+        seg.destroy()
+
+        # 滑块：悬停时拇指平滑长大
+        var_sl = tk.IntVar(value=50)
+        sl = ui.Slider(root, gui.ui, var_sl, 0, 100)
+        sl.place(x=0, y=80)
+        pump(root, 0.15)
+        sl._set_hover(True)
+        pump(root, 0.3)
+        check("滑块悬停后拇指变大", abs(sl._glow.value - 0.5) < 1e-6,
+              sl._glow.value)
+        sl.destroy()
+
+        # 窗口开场动画：淡入结束后 alpha 必须回到 1
+        try:
+            alpha = float(root.attributes("-alpha"))
+        except Exception:
+            alpha = 1.0
+        check("开场淡入后窗口不透明", abs(alpha - 1.0) < 0.02, alpha)
+
+        # 平滑滚动：缓动结束后停在目标位置（超出可滚范围时钳到边界）
+        gui.scroll.yview_moveto(0.0)
+        pump(root, 0.1)
+        _f, _l = gui.scroll.yview()
+        want = min(0.5, max(0.0, 1.0 - (_l - _f)))
+        gui._scroll_to(0.5)
+        pump(root, 0.5)
+        check("平滑滚动到达目标（越界时钳制）",
+              abs(gui.scroll.yview()[0] - want) < 0.02,
+              f"yview={gui.scroll.yview()} want={want:.3f}")
+        gui.scroll.yview_moveto(0.0)
+        check("动效全程无回调异常", not cb_errors, f"{cb_errors[:2]}")
+
+        print("\n10) 后台运行（托盘）")
         # 托盘线程/真图标不在测试范围（test_tray.py 也不碰），
         # 这里只测 ZoomGui 的行为：开关 -> 配置与托盘请求、
         # 点 × 隐藏、托盘队列 show/quit 的完整闭环。
@@ -300,7 +371,7 @@ def main():
         check("退出后钩子线程已停",
               not gui.hook_thread.is_alive())
 
-        print("\n10) 托盘丢失时的兜底（绝不静默退出）")
+        print("\n11) 托盘丢失时的兜底（绝不静默退出）")
         # 场景：开关开着，但托盘图标没了（比如启动失败）。
         # 点 × 必须先重试建托盘；重建失败要警告用户，然后才允许退出。
         ensured, warned = [], []
@@ -323,6 +394,7 @@ def main():
         check("重建失败 -> 警告后完整退出", warned == [1] and gone2,
               f"warned={warned} gone={gone2}")
         check("第二实例钩子已停", not gui2.hook_thread.is_alive())
+
 
     finally:
         if gui:
